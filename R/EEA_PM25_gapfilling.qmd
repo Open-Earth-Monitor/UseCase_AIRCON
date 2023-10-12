@@ -1,0 +1,104 @@
+---
+title: "AQ Gapfilling"
+author: "Johannes Heisig"
+date: "`r Sys.Date()`"
+format: html
+editor: visual
+---
+
+```{r}
+suppressPackageStartupMessages({
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stars)
+library(arrow)
+library(pbmcapply)
+})
+source("functions.R")
+```
+
+
+# Create temporal grid 
+
+limit AQ measurements to 2022
+
+```{r}
+# add time variables
+aq = read_parquet("AQ_data/NL_hourly_2015-2023_gaps.parquet") |> 
+  filter(between(DatetimeBegin, 
+                 as.POSIXct("2017-01-01 00:00:00 CET"), 
+                 as.POSIXct("2017-12-31 23:00:00 CET"))) |> 
+  dplyr::select(1, DatetimeBegin, NO2,O3,PM10,PM2.5) |> 
+  add_ymd()
+
+
+time_grid = make_time_grid(aq)
+station_meta = read_parquet("AQ_stations/EEA_stations_meta.parquet")
+aq_grid = full_join(aq, time_grid) |> add_meta() |> 
+  filter(!is.na(PM10) | !is.na(PM2.5) | !is.na(O3) | !is.na(NO2))
+         #StationType == "background")
+
+summary(aq_grid)
+select(aq_grid, NO2:PM2.5) |> summarise(across(everything(), function(x) sum(is.na(x))))
+```
+
+# Add solar radiation data
+
+Extract at space-time locations
+
+```{r}
+file = "supplementary/era5/EU_ssr_hrly_2017.nc"
+ssr = read_stars(file) |> setNames("SSR") |> 
+  st_set_crs(st_crs(4326))
+
+aq_grid_sf = st_as_sf(aq_grid, coords=c("Longitude","Latitude"), crs=4326)
+
+# if data is small:
+# aq_grid$SSR = st_extract(ssr, aq_grid_sf[1:40000,], time_column = "DatetimeBegin") |> 
+#   pull(SSR) |> units::drop_units()
+
+# if data is large:
+aq_split = split(aq_grid_sf, aq_grid_sf$AirQualityStationEoICode |> droplevels()) # make chunks
+map(aq_split, nrow) |> unlist()
+ssr_ext = pbmclapply(aq_split, extract_ts, x = ssr, varname = "SSR", mc.cores = 4)
+ssr_df = do.call(rbind, ssr_ext)
+ssr_df$SSR = ssr_df$SSR / 3600 # convert Joule/m² to Watt/m²
+aq_grid = inner_join(aq_grid, ssr_df)
+
+```
+
+
+# Fill gaps
+
+```{r}
+# Model (as proposed by Denby 2011)
+lm_pm2.5 = lm(PM2.5 ~ PM10 + Population + SSR + Longitude + Latitude, data = aq_grid)
+summary(lm_pm2.5)
+caret::RMSE(predict(lm_pm2.5), lm_pm2.5$model$PM2.5)
+caret::R2(predict(lm_pm2.5), lm_pm2.5$model$PM2.5)
+
+# Alternative model (with CLC)
+# lm_pm2.5 = lm(PM2.5 ~ PM10 + Population + SSR + Longitude + Latitude + CLC8, data = aq_grid)
+# summary(lm_pm2.5)
+
+# Fill
+PM2.5_prediction = predict(lm_pm2.5, newdata = aq_grid)
+aq_grid$PM2.5[is.na(aq_grid$PM2.5)]  = PM2.5_prediction[is.na(aq_grid$PM2.5)]
+
+# Check
+select(aq_grid, NO2:PM2.5) |> summarise(across(everything(), function(x) sum(is.na(x))))
+summary(aq_grid)
+
+write_parquet(aq_grid, "AQ_data/NL_hourly_2015-2023_gapfilled.parquet")
+```
+
+
+```{r}
+
+```
+
+
+
+
+

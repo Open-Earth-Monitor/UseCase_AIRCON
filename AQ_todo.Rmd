@@ -1,0 +1,62 @@
+---
+author: "Johannes Heisig"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: flatly
+---
+
+# ToDo
+
+## Preprocess AQ
+
+-   [x] download functions
+-   [x] filter by quality flags
+-   [x] filter for rural/urban/suburban & background/traffic
+    -   *include traffic or not? different approaches in the reports*
+-   [x] join pollutant tables and station meta data
+-   aggregate temporal dimension (year, month, day)
+    - [x] simple mean
+    -   percentiles
+
+## Gapfill PM2.5 from PM10
+
+-   predictors:
+    - coordinates
+    - population density
+    - sun shine duration
+      - ERA5 alternative: [`surface_net_solar_radiation`](https://codes.ecmwf.int/grib/param-db/?id=176)
+- add model plot with metrics
+
+## Supplementary data
+### Station-level
+
+- [x] gather station data
+- [x] add elevation
+- [x] add CLC
+  - [x] reclassify to 8 classes (Horalek 2019, section 3.4)
+- [x] add population density
+
+### Measurement-level
+- CAMS data (atmospheric transport model outputs, hourly)
+  - [ ] download
+  
+- ECWMF data (hourly):
+    -   wind speed (from u and v)
+    -   surface net solar radiation
+    -   temperature
+    -   relative humidity (from temp. and dew point temp.)
+    - [ ] download
+    - [ ] extract and calculate wind speed & humidity
+    
+## Interpolation
+
+- 3 separate map layers based on...
+  - rural background stations
+  - urban/suburban background stations
+  - urban/suburban traffic stations
+
+## Merging
+
+
+

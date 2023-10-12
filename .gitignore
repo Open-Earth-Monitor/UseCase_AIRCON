@@ -1,3 +1,14 @@
+# Data
+AQ_data/*
+AQ_stations/*.csv
+AQ_stations/*.gpkg
+download/*
+EEA_station_files/*
+supplementary/*
+*backup*
+
+
+
 # History files
 .Rhistory
 .Rapp.history
@@ -9,8 +20,6 @@
 # User-specific files
 .Ruserdata
 
-# Example code in package build process
-*-Ex.R
 
 # Output files from R CMD build
 /*.tar.gz
