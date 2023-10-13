@@ -2,8 +2,12 @@
 title: "EEA AQ Stations"
 author: "Johannes Heisig"
 date: "`r Sys.Date()`"
-format: html
-editor: visual
+format: 
+  html: default
+  gfm: default
+knitr:
+  opts_knit:
+    root.dir: "/mnt/cloud/wwu1/ec_bronze/_nogroup/ae78a1ca-a0e8-4e4e-8992-69c34947db65/UseCase_AIRCON"
 ---
 
 ```{r}
@@ -56,7 +60,9 @@ station_laea =
 ## Elevation
 
 ```{r}
-if (!file.exists("supplementary/EEA_stations_elevation.parquet")){
+elev = "supplementary/EEA_stations_elevation.parquet"
+
+if (!file.exists(elev)){
   dem = stars::read_stars("/vsicurl/https://s3.eu-central-1.wasabisys.com/eumap/dtm/dtm_elev.lowestmode_gedi.eml_mf_30m_0..0cm_2000..2018_eumap_epsg3035_v0.3.tif")
   
   Sys.setenv(GDAL_HTTP_MULTIRANGE = 'YES',
@@ -64,11 +70,11 @@ if (!file.exists("supplementary/EEA_stations_elevation.parquet")){
   
   tictoc::tic()
   station_laea$Elevation = stars::st_extract(dem, station_laea) |> pull(1)
-  arrow::write_parquet(st_drop_geometry(station_laea), "supplementary/EEA_stations_elevation.parquet")
+  arrow::write_parquet(st_drop_geometry(station_laea), elev)
   tictoc::toc()
   
 } else {
-  station_elevation = arrow::read_parquet("supplementary/EEA_stations_elevation.parquet") |> 
+  station_elevation = arrow::read_parquet(elev) |> 
     mutate(Elevation = ifelse(Elevation < -100, NA, Elevation))
 }
 
@@ -89,7 +95,7 @@ if (!file.exists(clc_8class)){
                  datatype = "INT1U", NAflag = 0, overwrite=T,
                  gdal=c("COMPRESS=DEFLATE"))
 } else {
-  lc8 = rast("supplementary/CLC_reclass_8.tif")
+  lc8 = rast(clc_8class)
 }
 NAflag(lc8) = 128
 levels(lc8) =  data.frame(id = c(1:8),
@@ -104,7 +110,7 @@ station_laea$CLC8 = extract(lc8, vect(station_laea)) |> pull(2)
 ## Population Density
 
 ```{r}
-pop = rast("supplementary/JRC_GRID_2018/JRC_1K_POP_2018.tif")
+pop = rast("supplementary/JRC_1K_POP_2018.tif")
 plot(pop, breaks = c(0,5,10,50,100,500,1000))
 station_laea$Population = extract(pop, vect(station_laea)) |> pull(2) |> replace_na(0)
 ```
@@ -139,14 +145,13 @@ station_final = filter(station_meta_sf,
   group_by(AirQualityStationEoICode, Countrycode) |> 
   filter(row_number()==1)
 
-#mapview::mapview(station_final, zcol="CLC8")
+mapview::mapview(station_final, zcol="CLC8")
 summary(station_final)
 ```
 
 Write files
 
 ```{r}
-
 bind_cols(st_drop_geometry(station_final), 
       data.frame(st_coordinates(station_final)) |> 
         setNames(c("Longitude","Latitude"))) |> 

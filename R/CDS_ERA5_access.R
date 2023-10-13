@@ -1,12 +1,8 @@
 library(ecmwfr)
 source("functions.R")
+source("R/ecmwf_login.R")
 
-# CDS User ID and API Key for ERA5 access
-uid = "149688"
-key = "3797cbc9-6304-47ac-a3ab-44197b08c873"
-# pw: theWeatherisnice!
-
-wf_set_key(user = uid, key = key, service = "cds")
+wf_set_key(user = uid_era, key = key_era, service = "cds")
 
 stations = arrow::read_parquet("AQ_stations/EEA_stations_meta.parquet")
 box = make_ecwmf_box(c(range(stations$Longitude), 

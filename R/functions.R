@@ -35,7 +35,8 @@ url_meta_data = function(source = "download_urls.txt"){
                                 labels = c("PM2.5", "PM10", "NO2", "O3")),
              Year = as.numeric(stringr::str_extract(u, "201[5-9]|202[0-3]")),
              Station = stringr::str_extract(u, "[0-9]{5}"),
-             File = u)                
+             File = u) |> 
+    na.omit()
 }
 
 check_station_urls = function(file = "download_urls.txt", plot = T){
@@ -52,13 +53,22 @@ download_station_data = function(url_file = "download_urls.txt", dir = NULL){
   if (is.null(dir)) dir = file.path(getwd(), "download")
   if (!dir.exists(dir)) dir.create(dir)
   urls = readLines(url_file)
+  fails = character(0)
   t = system.time({
     paths = purrr::map(urls, function(u){
       dest = file.path(dir, basename(u))
-      if (!file.exists(dest)) curl::curl_download(u, dest)
-    }, .progress = list(type = "iterator", name = "Downloading", clear = F)) |> unlist()
+      if (!file.exists(dest)){
+        tryCatch(curl::curl_download(u, dest),
+                 error = function(e) {fails <<- c(fails, u)}
+        )
+      }}, 
+      .progress = list(type = "iterator", name = "Downloading", clear = F)) |> unlist()
   })
   if (t[3] > 5) message("Download took ", t[3] |> unname(), " sec.")
+  if (length(fails) > 0){
+    message("Failed downloads:")
+    message(fails)
+  }
   url_meta_data(urls)
 }
 
@@ -72,8 +82,7 @@ read_pollutant = function(files, pollutant = "NO2", countries = NULL, dir = "dow
                       show_col_types = F)
   dplyr::mutate(data, 
                 DatetimeBegin = fasttime::fastPOSIXct(DatetimeBegin), 
-                AirQualityStationEoICode = as.factor(AirQualityStationEoICode), 
-                Countrycode = as.factor(Countrycode)) |> 
+                AirQualityStationEoICode = as.factor(AirQualityStationEoICode)) |> 
     dplyr::filter(!is.na(Concentration))
 }
 
@@ -103,11 +112,11 @@ add_meta = function(pollutant, meta_data = station_meta){
 }
 
 join_pollutants = function(pollutants, sf = F){
-  cat(" -",pollutants[[1]]$AirPollutant[1])
+  cat(" -", pollutants[[1]]$AirPollutant[1])
   a = pollutants[[1]] |> pivot_poll()
   
   if (length(pollutants) > 1){
-    by = dplyr::join_by(AirQualityStationEoICode, Countrycode, DatetimeBegin)
+    by = dplyr::join_by(AirQualityStationEoICode, DatetimeBegin)
     for (i in 2:length(pollutants)){
       cat(" -",pollutants[[i]]$AirPollutant[1])
       b = pollutants[[i]] |> pivot_poll()

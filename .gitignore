@@ -6,8 +6,8 @@ download/*
 EEA_station_files/*
 supplementary/*
 *backup*
-
-
+tests/*
+R/ecmwf_login.R
 
 # History files
 .Rhistory
