@@ -15,20 +15,19 @@ library(stars)
 library(arrow)
 library(pbmcapply)
 })
-source("functions.R")
+source("R/functions.R")
 ```
 
-
-# Create temporal grid 
+# Create temporal grid
 
 limit AQ measurements to 2022
 
 ```{r}
 # add time variables
-aq = read_parquet("AQ_data/NL_hourly_2015-2023_gaps.parquet") |> 
+aq = read_parquet("AQ_data/LU_hourly_2015-2016_gaps.parquet") |> 
   filter(between(DatetimeBegin, 
-                 as.POSIXct("2017-01-01 00:00:00 CET"), 
-                 as.POSIXct("2017-12-31 23:00:00 CET"))) |> 
+                 as.POSIXct("2015-01-01 00:00:00 CET"), 
+                 as.POSIXct("2015-12-31 23:00:00 CET"))) |> 
   dplyr::select(1, DatetimeBegin, NO2,O3,PM10,PM2.5) |> 
   add_ymd()
 
@@ -48,7 +47,7 @@ select(aq_grid, NO2:PM2.5) |> summarise(across(everything(), function(x) sum(is.
 Extract at space-time locations
 
 ```{r}
-file = "supplementary/era5/EU_ssr_hrly_2017.nc"
+file = "supplementary/era5/ERA5_Surface_net_short-wave_solar_radiation_2015.nc"
 ssr = read_stars(file) |> setNames("SSR") |> 
   st_set_crs(st_crs(4326))
 
@@ -68,7 +67,6 @@ aq_grid = inner_join(aq_grid, ssr_df)
 
 ```
 
-
 # Fill gaps
 
 ```{r}
@@ -78,9 +76,20 @@ summary(lm_pm2.5)
 caret::RMSE(predict(lm_pm2.5), lm_pm2.5$model$PM2.5)
 caret::R2(predict(lm_pm2.5), lm_pm2.5$model$PM2.5)
 
-# Alternative model (with CLC)
+
+# # Alternative model (with CLC)
 # lm_pm2.5 = lm(PM2.5 ~ PM10 + Population + SSR + Longitude + Latitude + CLC8, data = aq_grid)
 # summary(lm_pm2.5)
+# caret::RMSE(predict(lm_pm2.5), lm_pm2.5$model$PM2.5)
+# caret::R2(predict(lm_pm2.5), lm_pm2.5$model$PM2.5)
+# 
+# 
+# # Alternative model (with StationType + StationArea)
+# lm_pm2.5 = lm(PM2.5 ~ ((PM10 + Population + SSR + Longitude + Latitude) 
+#                        * StationType) * StationArea, data = aq_grid)
+# summary(lm_pm2.5)
+# caret::RMSE(predict(lm_pm2.5), lm_pm2.5$model$PM2.5)
+# caret::R2(predict(lm_pm2.5), lm_pm2.5$model$PM2.5)
 
 # Fill
 PM2.5_prediction = predict(lm_pm2.5, newdata = aq_grid)
@@ -90,15 +99,17 @@ aq_grid$PM2.5[is.na(aq_grid$PM2.5)]  = PM2.5_prediction[is.na(aq_grid$PM2.5)]
 select(aq_grid, NO2:PM2.5) |> summarise(across(everything(), function(x) sum(is.na(x))))
 summary(aq_grid)
 
-write_parquet(aq_grid, "AQ_data/NL_hourly_2015-2023_gapfilled.parquet")
+#write_parquet(aq_grid, "AQ_data/NL_hourly_2015-2023_gapfilled.parquet")
 ```
-
 
 ```{r}
+gapfill_station = function(id, data){
+  vars = c("PM2.5","PM10","Population","SSR","Longitude","Latitude")
+  if (!all(vars %in% names(data))){
+    stop("One of the following variables is missing in the data: ", paste0(vars, ", "))
+  }
+  d = dplyr::filter(data, AirQualityStationEoICode == id)
+  lm_pm2.5 = lm(PM2.5 ~ PM10 + Population + SSR + Longitude + Latitude, data = d)
+}
 
 ```
-
-
-
-
-

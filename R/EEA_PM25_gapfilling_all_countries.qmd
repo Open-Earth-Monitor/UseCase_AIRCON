@@ -1,0 +1,66 @@
+---
+title: "Gapfilling of hourly PM2.5 data for all countries"
+author: "Johannes Heisig"
+date: "`r Sys.Date()`"
+format: 
+  html: default
+  gfm: default
+knitr:
+  opts_knit:
+    root.dir: "/mnt/cloud/wwu1/ec_bronze/_nogroup/ae78a1ca-a0e8-4e4e-8992-69c34947db65/UseCase_AIRCON"
+---
+
+```{r}
+suppressPackageStartupMessages({
+library(dplyr)
+library(arrow)
+library(tictoc)
+})
+source("R/functions.R")
+station_meta = read_parquet("AQ_stations/EEA_stations_meta.parquet")
+```
+
+
+# Read Data
+
+Open hourly data for all 40 countries, but filter while reading to limit memory needs (using the arrow library).
+
+```{r}
+tic()
+aq = open_dataset("AQ_data/02_hourly_SSR") |> 
+  filter(!is.na(PM10), !is.na(PM2.5)) |> 
+  collect()
+aq
+toc()
+
+nrow(aq) 
+table(aq$StationType, aq$StationArea)
+```
+
+
+# Gapfilling Model (as proposed by Denby 2011 and Horalek et al. 2019)
+
+Simple linear model to predict PM2.5 concentrations from PM10, population density, surface solar radiation and coordinates. Models include interactions for station type (background vs traffic) but not for station area.
+
+```{r}
+lm_pm2.5 = lm(PM2.5 ~ (PM10 + Population + SSR + Longitude + Latitude) * StationType, data = aq)
+
+summary(lm_pm2.5)
+caret::RMSE(predict(lm_pm2.5), lm_pm2.5$model$PM2.5)
+caret::R2(predict(lm_pm2.5), lm_pm2.5$model$PM2.5)
+```
+
+# Prediction
+
+Map over each country and predict PM2.5 for gaps where PM10 is available by applying the above model. The function `fill_pm2.5_gaps()` further adds a column named "pseudo" that indicates whether a value was actually measured (0) or inferred through gapfilling (1), before writing to (parquet) file.
+
+```{r}
+countries = as.character(unique(station_meta$Countrycode))
+filled = purrr::map_vec(countries, fill_pm2.5_gaps, model = lm_pm2.5, 
+                    gap_data = "AQ_data/02_hourly_SSR",
+                    out_dir = "AQ_data/03_hourly_gapfilled")
+
+filled |> basename()
+```
+
+
