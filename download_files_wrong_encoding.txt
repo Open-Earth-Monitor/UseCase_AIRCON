@@ -1,0 +1,6 @@
+download/ES_8_14094_2018_timeseries.csv
+download/FR_5_38212_2015_timeseries.csv
+download/FR_6001_38584_2015_timeseries.csv
+download/FR_8_38468_2015_timeseries.csv
+download/SE_5_31088_2017_timeseries.csv
+download/SE_6001_31058_2018_timeseries.csv

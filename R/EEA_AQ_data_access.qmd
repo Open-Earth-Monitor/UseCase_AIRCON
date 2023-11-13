@@ -46,6 +46,8 @@ head(files)
 
 # Pre-processing
 
+Combine and filter data to become analysis-ready. Respective functions use lazy `data.table`-objects created with `dtplyr` to chain processing steps and execute the efficiently all at once.
+
 **Quality filter:**
 
 - which [validity classes](http://dd.eionet.europa.eu/vocabulary/aq/observationvalidity/view) should be included?
@@ -66,21 +68,25 @@ Wrangle downloaded CSVs to time series tables with a spatial reference.
 station_meta = arrow::read_parquet("AQ_stations/EEA_stations_meta.parquet")
 
 countries = c("LU")
-no2 = read_pollutant(files, countries = countries) |> filter_quality()
-o3 = read_pollutant(files, pollutant = "O3", countries = countries) |> filter_quality()
-pm10 = read_pollutant(files, pollutant = "PM10", countries = countries) |> filter_quality()
-pm25 = read_pollutant(files, pollutant = "PM2.5", countries = countries) |> filter_quality()
+no2 = read_pollutant_dt(files, pollutant = "NO2", countries = countries) |> filter_quality()
+o3 = read_pollutant_dt(files, pollutant = "O3", countries = countries) |> filter_quality()
+pm10 = read_pollutant_dt(files, pollutant = "PM10", countries = countries) |> filter_quality()
+pm25 = read_pollutant_dt(files, pollutant = "PM2.5", countries = countries) |> filter_quality()
 ```
 
 3. join tables to a single time series with measurements of multiple pollutants
 4. add station meta data including locations
 
 ```{r}
-pollutants = list(no2, o3, pm25, pm10)
+pollutants = list(NO2=no2, O3=o3, PM2.5=pm25, PM10=pm10)
 poll_table = join_pollutants(pollutants)
 
+class(poll_table)
+poll_table = as.data.table(poll_table)
+class(poll_table)
+
 summary(poll_table)
-purrr::map_vec(pollutants, nrow)
+purrr::map(poll_table |> select(names(pollutants)), function(x) sum(!is.na(x))) |> unlist()
 nrow(poll_table)
 
 # Station properties
@@ -88,11 +94,6 @@ table(poll_table$AirQualityStationEoICode |> droplevels())
 table(poll_table$StationArea)
 table(poll_table$StationType)
 
-arrow::write_parquet(poll_table, "AQ_data/LU_hourly_2015-2016_gaps.parquet")
-
-# geoarrow::write_geoparquet(poll_table,  "AQ_data/NL_hourly_2015-2023_gaps_sf.parquet")
-# cbind(st_drop_geometry(poll_table), 
-#       st_coordinates(poll_table) |> as_tibble() |> setNames(c("Longitude","Latitude"))) |> 
-#   arrow::write_parquet("AQ_data/NL_hourly_2015-2023_gaps.parquet")
+arrow::write_parquet(poll_table, "tests/LU_hourly_2015-2016_gaps.parquet")
 ```
 
