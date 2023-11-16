@@ -1,3 +1,5 @@
 # Apply override to all files in the directory
 R/*_files/* linguist-vendored
 R/*html linguist-vendored
+R/*.css linguist-vendored
+R/*.js linguist-vendored
