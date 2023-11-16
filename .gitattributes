@@ -4,5 +4,7 @@
 *.css linguist-vendored
 *.js linguist-vendored
 
+*.R linguist-language=R
 *.Rmd linguist-language=R
 *.qmd linguist-language=R
+*.ipynb linguist-language=Python
