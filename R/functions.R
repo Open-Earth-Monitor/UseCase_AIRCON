@@ -1,4 +1,4 @@
-## Downloads
+## Downloads   ==================================================================
 
 generate_request = function(country, pollutant, year_start, year_end = year_start, source = "All"){
   purrr::map(country, function(c) purrr::map(pollutant, function(p) 
@@ -76,7 +76,7 @@ download_station_data = function(url_file = "download_urls.txt", dir = NULL){
   url_meta_data(urls)
 }
 
-## Pre-processing
+## Pre-processing  =============================================================
 get_encoding = function(file){
   e = readr::guess_encoding(file)
   enc = e$encoding[which.max(e$confidence)]
@@ -198,7 +198,7 @@ preprocess_AQ_by_country = function(country, dl_files = files, outdir = "."){
 
 
 
-## Gapfilling
+## Gapfilling  =================================================================
 make_ecwmf_box = function(bounds, buffer, view=T){
   xmn = bounds[1]-buffer; xmx = bounds[2]+buffer; ymn = bounds[3]-buffer; ymx = bounds[4]+buffer
   box = c(ymx, xmn, ymn, xmx)
@@ -259,6 +259,134 @@ fill_pm2.5_gaps = function(country, model,
   cat(paste0(country, " - "))
   return(out_file)
 }
+
+# Temporal aggregation =========================================================
+
+check_temp_cov = function(x, p, step, collect = F){
+  stopifnot("step should be one of 'hour', 'day', or 'month'." = step %in% c("hour","month","day"))
+  s = switch(step,
+             "hour" = 365*24,
+             "day" = 365,
+             "month" = 12)
+  x = dplyr::select(x, AirQualityStationEoICode, year, v = dplyr::all_of(p)) |> 
+    dplyr::filter(!is.na(v)) |> 
+    dplyr::mutate(one = 1, AirQualityStationEoICode = as.character(AirQualityStationEoICode)) |> 
+    dplyr::group_by(AirQualityStationEoICode, year) |> 
+    dplyr::summarise(cov = sum(one)/s, AirPollutant = p, .groups = "drop") 
+  
+  if (collect) x = dplyr::collect(x)
+  return(as_arrow_table(x))
+}
+
+filter_temp_cov = function(x, tc, p){
+  polls = c("PM10","PM2.5","O3","NO2")
+  thresh = c("PM10" = 10000, "PM2.5"= 10000, "O3"= 500, "NO2"= 150)
+  
+  tc = dplyr::filter(tc, AirPollutant == p) |> dplyr::select(1:2) 
+  
+  dplyr::select(x, -dplyr::all_of(polls), v = dplyr::all_of(p)) |> 
+    dplyr::filter(!is.na(v) & v > 0 & v < thresh[p]) |> 
+    dplyr::rename(!!p := v) |> 
+    dplyr::mutate(AirQualityStationEoICode = as.character(AirQualityStationEoICode)) |>
+    dplyr::inner_join(tc, by = dplyr::join_by(AirQualityStationEoICode, year)) 
+}
+
+find_poll = function(x){
+  n = names(x)
+  poll = NULL
+  for (p in c("PM10","PM2.5","O3","NO2")){
+    if (p %in% n) poll = p
+  }
+  return(poll)
+}
+
+temp_agg_mean = function(x, step, collect = F){
+  stopifnot("step should be one of 'year','month', or 'day')" = step %in% c("year","month","day"))
+  temp_vars_sel = switch(step,
+                         "year" = c("year"),
+                         "month" = c("year","month"),
+                         "day" = c("year", "month", "doy"))
+  p = find_poll(x)
+  vrs_sel = c(temp_vars_sel, "v" = p)
+  
+  temp_vars_group = switch(step,
+                           "year" = dplyr::vars(as.symbol("year")),
+                           "month" = dplyr::vars(as.symbol("year"), as.symbol("month")),
+                           "day" = dplyr::vars(as.symbol("year"), as.symbol("month"), as.symbol("doy")))
+  vrs_group = c(dplyr::vars(AirQualityStationEoICode), temp_vars_group)
+  
+  x = dplyr::select(x, AirQualityStationEoICode, SSR, vrs_sel) |> 
+    dplyr::group_by_at(vrs_group, .add = T) |> 
+    dplyr::summarise(v = mean(v, na.rm = T),
+              SSR = mean(SSR, na.rm = T),
+              .groups = "drop") |> 
+    dplyr::rename(!!p := v) |> add_meta()
+  if (collect) x = dplyr::collect(x)
+  return(x)
+}
+
+
+temp_agg_perc = function(x, step, perc, collect = F){
+  stopifnot("step should be one of 'year','month', or 'day')" = step %in% c("year","month","day"))
+  temp_vars_sel = switch(step,
+                     "year" = c("year"),
+                     "month" = c("year","month"),
+                     "day" = c("year", "month", "doy"))
+  p = find_poll(x)
+  vrs_sel = c(temp_vars_sel, "v" = p)
+  
+  temp_vars_group = switch(step,
+                     "year" = dplyr::vars(as.symbol("year")),
+                     "month" = dplyr::vars(as.symbol("year"), as.symbol("month")),
+                     "day" = dplyr::vars(as.symbol("year"), as.symbol("month"), as.symbol("doy")))
+  vrs_group = c(dplyr::vars(AirQualityStationEoICode), temp_vars_group)
+ 
+  x = dplyr::select(x, AirQualityStationEoICode, SSR, vrs_sel) |> 
+    dplyr::group_by_at(vrs_group) |> 
+    dplyr::summarise(v = quantile(v, perc, na.rm = T),
+              SSR = mean(SSR, na.rm = T),
+              .groups = "drop") |>  dplyr::rename(!!p := v) |> add_meta()
+  
+  if (collect) x = dplyr::collect(x)
+  return(x)
+}
+
+process_temp_agg = function(aq, p, step, perc = NULL, overwrite = T, ...){
+  stopifnot("step should be one of 'year','month', or 'day')" = step %in% c("year","month","day"))
+  dir = switch(step, "year" = "AQ_data/06_annual",
+               "month" = "AQ_data/05_monthly",
+               "day" = "AQ_data/04_daily")
+  if (!dir.exists(dir)) dir.create(dir)
+  ttag = (basename(dir) |> strsplit("_"))[[1]][[2]]
+  aggtag = ifelse(is.null(perc), "mean", "perc")
+  
+  out = if (step == "day"){
+    dir = file.path(dir, paste0(p, "_", aggtag))
+    dir
+  } else {
+    file.path(dir, paste0(p, "_", ttag, "_", aggtag, ".parquet"))
+  }
+  fex = all(file.exists(out))
+  if (!fex | (fex & overwrite)) {
+    aq = filter_temp_cov(aq, stations_covered, p)
+    aq = if (is.null(perc)){
+      temp_agg_mean(aq, step, ...)
+    } else {
+      temp_agg_perc(aq, step, perc, ...)
+    }
+    if (step == "day"){
+      arrow::write_dataset(aq, dir, partitioning = "year", 
+                           basename_template = paste0(p, "_", ttag, "_", aggtag, "_{i}.parquet"))
+    } else {
+      arrow::write_parquet(aq, out)
+    }
+    gc()
+  }
+}
+
+
+
+## Climate data conversion  ====================================================
 
 # relative humidity
 rh = function(t, d){

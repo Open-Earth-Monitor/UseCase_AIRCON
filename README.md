@@ -20,7 +20,7 @@ method.
 - [x] write function to join pollutant tables and station meta data
 - write function to aggregate temporal dimension (year, month, day)
   - [x] simple mean
-  - specific percentiles (for O3, NO2)
+  - [x] specific percentiles (for O3, NO2)
 - [x] download station data for all countries (2015-2023)
 - [x] preprocess all station data
 
@@ -34,6 +34,17 @@ predictors:
   - ERA5 alternative:
     [`surface_net_solar_radiation`](https://codes.ecmwf.int/grib/param-db/?id=176)
 - [x] gapfill all PM2.5
+
+## Temporal aggregates (annual, monthly, daily)
+
+- [x] NO2 (mean)
+- [x] PM 2.5 (mean)
+- [x] mean
+- [x] 90.4 percentile of daily mean
+- [x] PM10
+- [ ] O3
+- [x] mean
+- [ ] 93.2 percentile of max. daily 8h rolling mean
 
 ## Supplementary data
 
@@ -66,81 +77,29 @@ predictors:
   - [x] download
   - [x] calculate wind speed/direction & humidity
 - [x] create workflow efficient & parallel extraction
-- [ ] temporal aggregates for annual, monthly & daily maps
+- temporal aggregates
+  - [x] annual
+  - [x] monthly
+  - [x] daily
 
 ## Interpolation
 
-- create 3 separate map layers based on…
-  - rural background stations
-  - urban/suburban background stations
-  - urban/suburban traffic stations
+create 3 separate map layers based on… - rural background stations -
+urban/suburban background stations - urban/suburban traffic station - \[
+\] run interpolation test for one annual dataset
 
 ## Merging
 
+- tbd…
+
 # Codeflow
 
-<table style="width:100%;">
-<colgroup>
-<col style="width: 4%" />
-<col style="width: 24%" />
-<col style="width: 70%" />
-</colgroup>
-<thead>
-<tr class="header">
-<th>Step</th>
-<th>File</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>1</td>
-<td><code>ACS_CAMS_access.R</code> <br />
-<code>CCS_ERA5_access.R</code><br />
-<code>download_nc_job.R</code> <br />
-<code>rename_nc.R</code></td>
-<td>Request hourly ERA5 weather and CAMS pollution data. Copy to URLs
-from the web interface and store in .txt file to iterate over for
-downloading. Rename files according to metadata.</td>
-</tr>
-<tr class="even">
-<td>2</td>
-<td><code>EEA_stations.qmd</code></td>
-<td>Create a spatial dataset with all AQ stations and supplement them
-with static covariates (elevation, population, land cover).</td>
-</tr>
-<tr class="odd">
-<td>3</td>
-<td><code>EA_AQ_data_access.qmd</code>
-<code>EEA_AQ_data_access_all_countries.R</code></td>
-<td>Download &amp; pre-process hourly AQ measurements. This includes
-reading, filtering, and joining up to 4 pollutant time series per
-station for 2015-2023.</td>
-</tr>
-<tr class="even">
-<td>4</td>
-<td><code>EEA_PM25_gapfilling.qmd</code></td>
-<td>Infer PM2.5 where missing AND where PM10 is available using linear
-regression.</td>
-</tr>
-<tr class="odd">
-<td>5</td>
-<td><code>EEA_AQ_data_temporal_aggregation.qmd</code></td>
-<td>Aggregate measurements to annual, monthly, daily.</td>
-</tr>
-<tr class="even">
-<td>6</td>
-<td><p><code>xarray_extract_station_SSR.ipynb</code></p>
-<p><code>EEA_PM25_gapfilling_all_countries.qmd</code></p></td>
-<td>Extract hourly Surface Solar Radiation before gapfilling PM2.5 (only
-where PM10 is measured) using linear regression.</td>
-</tr>
-<tr class="odd">
-<td>7</td>
-<td><code>xarray_dask_rel_humidity.ipynb</code><br />
-<code>xarray_dask_ws_wd.ipynb</code></td>
-<td>Process ERA5 wind vectors temperature data to wind speed &amp;
-direction and relative humidity.</td>
-</tr>
-</tbody>
-</table>
+| Step | File                                                                       | Description                                                                                                                                                                          |
+|-----:|:---------------------------------------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+|    1 | `ACS_CAMS_access.R` `CCS_ERA5_access.R` `download_nc_job.R rename_nc.R`    | Request hourly ERA5 weather and CAMS pollution data. Copy to URLs from the web interface and store in .txt file to iterate over for downloading. Rename files according to metadata. |
+|    2 | `EEA_stations.qmd`                                                         | Create a spatial dataset with all AQ stations and supplement them with static covariates (elevation, population, land cover).                                                        |
+|    3 | `EA_AQ_data_access.qmd` `EEA_AQ_data_access_all_countries.R`               | Download & pre-process hourly AQ measurements. This includes reading, filtering, and joining up to 4 pollutant time series per station for 2015-2023.                                |
+|    4 | `EEA_PM25_gapfilling.qmd`                                                  | Infer PM2.5 where missing AND where PM10 is available using linear regression.                                                                                                       |
+|    5 | `xarray_extract_station_SSR.ipynb` `EEA_PM25_gapfilling_all_countries.qmd` | Extract hourly Surface Solar Radiation before gapfilling PM2.5 (only where PM10 is measured) using linear regression.                                                                |
+|    6 | `xarray_dask_rel_humidity.ipynb` `xarray_dask_ws_wd.ipynb`                 | Process ERA5 wind vectors temperature data to wind speed & direction and relative humidity.                                                                                          |
+|    7 | `EEA_AQ_data_temporal_aggregation.qmd` `xarray_temp_aggregate.ipynb`       | Aggregate AQ measurements and CAMS/ERA5 hourly data to annual, monthly, daily means.                                                                                                 |

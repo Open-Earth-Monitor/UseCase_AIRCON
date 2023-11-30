@@ -1,0 +1,8 @@
+Step, 	File, 	Description
+1, 	`ACS_CAMS_access.R` `CCS_ERA5_access.R` `download_nc_job.R rename_nc.R`, 	"Request hourly ERA5 weather and CAMS pollution data. Copy to URLs from the web interface and store in .txt file to iterate over for downloading. Rename files according to metadata."
+2, 	`EEA_stations.qmd`, "Create a spatial dataset with all AQ stations and supplement them with static covariates (elevation, population, land cover)."
+3, 	`EA_AQ_data_access.qmd` `EEA_AQ_data_access_all_countries.R`, "Download & pre-process hourly AQ measurements. This includes reading, filtering, and joining up to 4 pollutant time series per station for 2015-2023."
+4, 	`EEA_PM25_gapfilling.qmd`, "Infer PM2.5 where missing AND where PM10 is available using linear regression."
+5, 	`xarray_extract_station_SSR.ipynb` `EEA_PM25_gapfilling_all_countries.qmd`, "Extract hourly Surface Solar Radiation before gapfilling PM2.5 (only where PM10 is measured) using linear regression."
+6, `xarray_dask_rel_humidity.ipynb` `xarray_dask_ws_wd.ipynb`, "Process ERA5 wind vectors temperature data to wind speed & direction and relative humidity."
+7, 	`EEA_AQ_data_temporal_aggregation.qmd` `xarray_temp_aggregate.ipynb` , "Aggregate AQ measurements and CAMS/ERA5 hourly data to annual, monthly, daily means."

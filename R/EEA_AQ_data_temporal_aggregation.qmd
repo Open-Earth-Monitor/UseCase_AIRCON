@@ -1,120 +1,118 @@
 ---
-title: "Download EEA AQ Station Data"
+title: "Temporal Aggregates for EEA AQ Station Data"
 author: "Johannes Heisig"
 date: "`r Sys.Date()`"
-output: html_document
+format: 
+  html: default
+  gfm: default
+knitr:
+  opts_knit:
+    root.dir: "/mnt/cloud/wwu1/ec_bronze/_nogroup/ae78a1ca-a0e8-4e4e-8992-69c34947db65/UseCase_AIRCON"
 ---
 
 ```{r}
 suppressPackageStartupMessages({
-library(dplyr)
-library(tidyr)
-library(sf)
-library(ggplot2)
-library(arrow)
+  library(dplyr)
+  library(arrow)
+  library(ggplot2)
 })
-source("functions.R")
-aq = read_parquet("AQ_data/LU_hourly_2015-2023_gapfilled.parquet") # table, not sf
+if (! basename(getwd()) == "UseCase_AIRCON") setwd("UseCase_AIRCON")
+source("R/functions.R")
+station_meta = read_parquet("AQ_stations/EEA_stations_meta.parquet")
 ```
 
-## Add temporal variables
+Interpolated air quality maps for Europe will be processed at a temporal resolution of days, months, and years. As input
+
+## Open AQ data
+
+Open gapfilled hourly AQ data from a partition of parquet files and add temporal variables for
+
+-   year (2015-2023)
+-   month (1-12)
+-   day of year (1-365)
 
 ```{r}
-aq = add_ymd(aq)
-summary(aq)
+aq = open_dataset("AQ_data/03_hourly_gapfilled") |> add_ymd()
 ```
 
-## Check temporal coverage
+## Select stations with sufficient temporal coverage
 
-The annual temporal coverage of hourly measurements should be greater then 75%.
+Check the percentage of missing measurements per station, pollutant, and year to select suitable time series. The annual temporal coverage of hourly measurements should be greater then 75%.
 
 ```{r}
-check_temp_cov = function(x, p, steps = "hourly"){
-  s = switch (steps,
-              "hourly" = 365*24,
-              "daily" = 365,
-              "monthly" = 12)
-  x = dplyr::select(x, AirQualityStationEoICode, year, dplyr::all_of(p)) |> 
-    tidyr::drop_na() |> 
-    dplyr::group_by(AirQualityStationEoICode, year) |> 
-    dplyr::summarise(cov = dplyr::n()/s, AirPollutant = p, .groups = "drop")
-  x
-}
-
-temp_cov = rbind(
-  pm10 = check_temp_cov(aq, "PM10"),
-  pm25 = check_temp_cov(aq, "PM2.5_pred"),
-  o3 = check_temp_cov(aq, "O3"),
-  no2 = check_temp_cov(aq, "NO2")
+s = "hour"
+temp_cov = concat_tables(
+  pm10 = check_temp_cov(aq, step = s, p = "PM10"),
+  pm25 = check_temp_cov(aq, step = s, p = "PM2.5"),
+  o3   = check_temp_cov(aq, step = s, p = "O3"),
+  no2  = check_temp_cov(aq, step = s, p = "NO2")
 )
 
-ggplot(temp_cov, aes(year, cov, color=AirQualityStationEoICode)) +
-  geom_point() + facet_wrap(~AirPollutant)
-  
-filter_temp_cov = function(x, tc, p){
-  polls = c("PM10","PM2.5","O3","NO2")
-  tc = dplyr::filter(tc, AirPollutant == p) |> dplyr::select(1:2)
-  dplyr::select(x, -dplyr::all_of(setdiff(polls, p))) |> 
-    tidyr::drop_na() |> 
-    dplyr::inner_join(tc, by = join_by(AirQualityStationEoICode, year))
+stations_covered = filter(temp_cov, cov > 0.75) |> select(-cov) #|> as_arrow_table()
+nrow(stations_covered)
+```
+
+## Temporal aggregates
+
+Turn the dataset query (`aq`) into an Arrow Table. `aq_table` is large (\~20 GB) and has \~165 mio. rows.
+
+```{r}
+aq_table = select(aq, AirQualityStationEoICode, NO2:PM10, SSR, year, month, doy) |> 
+  as_arrow_table()
+```
+
+Aggregates are performed using the `mean` function or a pollutant-specific percentile.
+
+-   PM10: mean & 90.4 percentile (formerly 36th highest value)
+-   PM 2.5 & NO2: mean
+-   O3: mean & 93.2 percentile of daily 8-hour maximum (formerly 26th highest value)
+
+```{r}
+pollutants = c("O3", "PM10", "PM2.5", "NO2")
+steps = c("year", "month", "day")
+ow = F
+
+for (s in steps){
+  for (p in pollutants){
+    message("Aggregating ", p, " by ", s, " using mean.")
+    process_temp_agg(aq_table, p, s, overwrite = ow)
+    
+    if (p == "PM10"){
+      message("Aggregating ", p, " by ", s, " using percentile")
+      process_temp_agg(aq_table, p, s, perc = 0.904, overwrite = ow)
+    }
+    if (p == "O3"){
+      message("Aggregating ", p, " by ", s, " using percentile")
+      process_temp_agg(aq_table, p, s, perc = 0.932, overwrite = ow)
+    }
+  }
 }
-
-stations_covered = filter(temp_cov, cov > 0.75) |> select(-cov)
-
-poll_table_covered = full_join(filter_temp_cov(aq, stations_covered, "PM10"),
-          filter_temp_cov(aq, stations_covered, "PM2.5")) |> 
-  full_join(filter_temp_cov(aq, stations_covered, "O3")) |> 
-  full_join(filter_temp_cov(aq, stations_covered, "NO2"))
-
 ```
 
+```{r, eval=FALSE, include=FALSE}
+v = "NO2"
+vv = rlang::data_sym(v)
+mod = "mean"
 
-## Annual 
+a = read_parquet(paste0("AQ_data/06_annual/", v, "_annual_", mod, ".parquet"))
+#ggplot(a, aes(Countrycode, !! vv)) + geom_boxplot(aes(color = StationType)) + ggtitle(paste("Annual", v))
 
-- PM10: mean & 90.4 percentile (formerly 36th highest value)
-- PM 2.5 & NO2: mean
-- O3: mean & 93.2 percentile of daily 8-hour maximum (formerly 26th highest value)
+#m = read_parquet(paste0("AQ_data/05_monthly/", v, "_monthly_", mod, ".parquet")) 
+#ggplot(m, aes(Countrycode, !! vv)) + geom_boxplot(aes(color = StationType)) + ggtitle(paste("Monthly", v))
 
-```{r}
-aq_annual_mean = group_by(aq, AirQualityStationEoICode, year) |> 
-  summarise(PM10 = mean(PM10, na.rm = T),
-            PM2.5 = mean(PM2.5_pred, na.rm = T),
-            NO2 = mean(NO2, na.rm = T),
-            O3 = mean(O3, na.rm = T))
-
-rbind(
-  pm10 = check_temp_cov(aq_annual_mean, "PM10"),
-  pm25 = check_temp_cov(aq_annual_mean, "PM2.5"),
-  o3 = check_temp_cov(aq_annual_mean, "O3"),
-  no2 = check_temp_cov(aq_annual_mean, "NO2")
-) |> 
-ggplot(aes(year, cov, color=AirQualityStationEoICode)) +
-  geom_point() + facet_wrap(~AirPollutant)
+d = open_dataset(paste0("AQ_data/04_daily/",v,"_", mod)) |> select(names(a)) |> collect() |> 
+  filter(!is.na(!! vv))
+ggplot(d, aes(Countrycode, !! vv)) + geom_boxplot(aes(color = StationType)) + ggtitle(paste("Daily", v))
+ggsave(paste0("AQ_data/04_daily/boxplots_by_country/", v, ".png"))
 ```
 
-## Monthly
+## Distribution of daily means by country
 
-```{r}
-poll_monthly_mean = group_by(aq, AirQualityStationEoICode, year, month) |> 
-  summarise(PM10 = mean(PM10, na.rm = T),
-            PM2.5 = mean(PM2.5, na.rm = T),
-            NO2 = mean(NO2, na.rm = T),
-            O3 = mean(O3, na.rm = T))
-```
+![](images/NO2.png)
 
-## Daily
+![](images/O3.png)
 
-- PM10: mean & 90.4 percentile (formerly 36th highest value)
-- PM 2.5 & NO2: mean
-- O3: mean & 93.2 percentile of daily 8-hour maximum (formerly 26th highest value)
+![](images/PM10.png)
 
-```{r}
-poll_daily_mean = group_by(aq, AirQualityStationEoICode, year, month, doy) |> 
-  summarise(PM10 = mean(PM10, na.rm = T),
-            PM2.5 = mean(PM2.5, na.rm = T),
-            NO2 = mean(NO2, na.rm = T),
-            O3 = mean(O3, na.rm = T))
-```
-
-
+![](images/PM2.5.png)
 
