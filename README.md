@@ -39,12 +39,12 @@ predictors:
 
 - [x] NO2 (mean)
 - [x] PM 2.5 (mean)
-- [x] mean
-- [x] 90.4 percentile of daily mean
 - [x] PM10
+  - [x] mean
+  - [x] 90.4 percentile of daily mean
 - [ ] O3
-- [x] mean
-- [ ] 93.2 percentile of max. daily 8h rolling mean
+  - [x] mean
+  - [ ] 93.2 percentile of max. daily 8h rolling mean
 
 ## Supplementary data
 
@@ -76,7 +76,6 @@ predictors:
   - relative humidity (from temp. and dew point temp.)
   - [x] download
   - [x] calculate wind speed/direction & humidity
-- [x] create workflow efficient & parallel extraction
 - temporal aggregates
   - [x] annual
   - [x] monthly
