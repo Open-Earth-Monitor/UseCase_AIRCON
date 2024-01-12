@@ -50,6 +50,9 @@ predictors:
 -   [x] add CLC
     -   [x] reclassify to 8 classes (Horalek 2019, section 3.4)
 -   [x] add population density
+-   [ ] add road type information
+    - [x] buffer and rasterize GRIP vector data for road classes 1-3
+    - [x] distance to nearest road (by type)
 
 ### Measurement-level (hourly)
 
@@ -68,12 +71,21 @@ predictors:
     -   relative humidity (from temp. and dew point temp.)
     -   [x] download
     -   [x] calculate wind speed/direction & humidity
--   temporal aggregates
-    -   [x] annual
-    -   [x] monthly
-    -   [x] daily
+    -   temporal aggregates
+        -   [x] annual
+        -   [x] monthly
+        -   [x] daily    
+        
+-   Sentinel-5P TROPOMI
+    -   temporal aggregates
+        -   [ ] annual
+        -   [ ] monthly
+        -   [ ] daily
 
 ## Interpolation
+
+- [x] function to read aq data
+- [x] function to read and warp covariates to a common grid
 
 create 3 separate map layers based on...
   - rural background stations

@@ -1,0 +1,68 @@
+---
+title: "AQ Gapfilling"
+author: "Johannes Heisig"
+date: "`r Sys.Date()`"
+format: html
+editor: visual
+---
+
+```{r}
+suppressPackageStartupMessages({
+library(dplyr)
+library(tidyr)
+library(gstat)
+library(stars)
+
+})
+source("R/functions.R")
+```
+
+
+## Read AQ-Data and Add Covariates
+
+```{r}
+y = 2019
+poll = "PM10"
+stat = "perc"
+
+load_poll(poll, stat, y, m=6)           # monthly aq aggregates for June 2019
+load_poll(poll, stat, y, d=350)         # daily aq aggregates for day 350 in 2019
+
+pm10 = load_poll(poll, stat, y)
+
+aq = pm10
+
+
+
+
+cams = read_stars("supplementary/03_annual/PM10_annual_2019.nc", proxy = F)
+#read_stars("supplementary/static/")
+ws = read_stars("supplementary/03_annual/Wind_Speed_annual_2019.nc", proxy = F)
+rh = read_stars("supplementary/03_annual/Rel_Humidity_annual_2019.nc", proxy = F)
+
+c(ws, rh)
+
+# PM10: log_cams, elevation, ws, rh, clc
+# PM2.5: log_cams, elevation, ws, clc
+# O3: cams, elevtion, ws, ssr 
+# NO2: cams, elevation, elevation 5km, ws, ssr, S5P, pop, clc, clc 5km
+
+tic()
+aq_cov = load_ETC_covs_annual(aq)
+toc()
+
+```
+
+
+## Split Data into Station-Type/-Area Groups
+
+```{r}
+table(aq$StationArea, aq$StationType)
+
+aq_rural_background = filter(aq, StationType == "background", StationArea == "rural")
+aq_urban_background = filter(aq, StationType == "background", StationArea %in% c("urban", "suburban"))
+aq_urban_traffic = filter(aq, StationType == "traffic", StationArea %in% c("urban", "suburban"))
+
+```
+
+

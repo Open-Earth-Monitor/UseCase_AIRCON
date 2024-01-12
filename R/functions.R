@@ -325,7 +325,8 @@ temp_agg_mean = function(x, step, collect = F){
   return(x)
 }
 
-
+# 8hr running mean
+# https://www.ecfr.gov/current/title-40/chapter-I/subchapter-C/part-50/appendix-Appendix%20I%20to%20Part%2050
 temp_agg_perc = function(x, step, perc, collect = F){
   stopifnot("step should be one of 'year','month', or 'day')" = step %in% c("year","month","day"))
   temp_vars_sel = switch(step,
@@ -416,4 +417,65 @@ wspeed <-function(u, v,  units = F){
   return(ws)
 }
 
+## Interpolation ===============================================================
 
+load_poll = function(poll, stat, y, m=0, d=0){
+  if (!any(m==0, d==0)) stop("Supply only either m (month, 1-12) or d (day of year; 1-365).")
+  if (!poll %in% c("PM10","PM2.5","O3","NO2")) stop("Select one of PM10, PM2.5, O3, NO2.")
+  if (!stat %in% c("perc", "mean")) stop("Select one of mean or perc.")
+  dir = file.path("AQ_data", ifelse(m == 0 & d == 0, "06_annual", ifelse(d == 0, "05_monthly", "04_daily")))
+  
+  info = paste("Loading", poll, "data. Year =", y)
+  
+  if (d > 0){
+    dir = paste0(dir, "/", poll, "_", stat)
+    info = paste(info, "- Day of Year =", d)
+    message(info)
+    arrow::open_dataset(dir) |> dplyr::filter(year == y, doy == d) |> dplyr::collect()
+  } else if (m > 0){
+    pfile = list.files(dir, pattern = glob2rx( paste0(poll, "*", stat, "*")), full.names = T)
+    stopifnot(length(pfile)==1)
+    info = paste(info, "- Month =", m)
+    message(info)
+    arrow::read_parquet(pfile) |> dplyr::filter(year == y, month == m)
+  } else {
+    pfile = list.files(dir, pattern = glob2rx( paste0(poll, "*", stat, "*")), full.names = T)
+    stopifnot(length(pfile)==1)
+    message(info)
+    arrow::read_parquet(pfile) |> dplyr::filter(year == y)
+  }
+}
+
+
+load_ETC_covs_annual = function(aq){
+  pn = c("PM2.5", "PM10", "NO2", "O3")
+  poll = pn[which(pn %in% names(aq))]
+  y = unique(aq$year)
+  stopifnot(length(y)==1)
+  
+  clc = terra::rast("supplementary/static/CLC_reclass_8_1km.tif") 
+  read_n_warp = function(x, n) terra::rast(x) |> terra::project(clc) |> 
+    terra::resample(clc, method = "bilinear") |> 
+    stars::st_as_stars() |> 
+    #stars::st_set_dimensions(point = F) |> 
+    setNames(n)
+  
+  cams_name = paste0("CAMS_", poll)
+  cams = read_n_warp(paste0("supplementary/03_annual/", poll, "_annual_", y, ".nc"), n = cams_name)
+  
+  ws = read_n_warp(paste0("supplementary/03_annual/Wind_Speed_annual_", y, ".nc"), n = "WindSpeed")
+  
+  clc_st = stars::st_as_stars(clc) |> setNames("CLC")
+  stars::st_dimensions(clc_st)$x$point = NULL; stars::st_dimensions(clc_st)$y$point = NULL
+  stars::st_dimensions(clc_st) = stars::st_dimensions(cams)
+  
+  l = switch(poll, 
+             "PM10" = list(log(cams) |> setNames(paste0("log_", cams_name)), ws, clc_st, # alt,
+                           read_n_warp(paste0("supplementary/03_annual/Rel_Humidity_annual_", y, ".nc"), n = "RelHumidity")), 
+             "PM2.5" = list(log(cams) |> setNames(paste0("log_", cams_name)), ws, clc_st), #, alt)
+             "O3" = list(cams, ws, clc_st, 
+                         read_n_warp(paste0("supplementary/03_annual/Solar_Radiation_annual_", y, ".nc"), n = "SolarRadiation")))
+  # "NO2 = ...
+  
+  do.call(c, l)
+}
