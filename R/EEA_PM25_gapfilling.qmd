@@ -24,7 +24,7 @@ limit AQ measurements to 2022
 
 ```{r}
 # add time variables
-aq = read_parquet("AQ_data/LU_hourly_2015-2016_gaps.parquet") |> 
+aq = read_parquet("tests/LU_hourly_2015-2016_gaps.parquet") |> 
   filter(between(DatetimeBegin, 
                  as.POSIXct("2015-01-01 00:00:00 CET"), 
                  as.POSIXct("2015-12-31 23:00:00 CET"))) |> 

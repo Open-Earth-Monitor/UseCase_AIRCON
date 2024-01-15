@@ -20,6 +20,17 @@ source("R/functions.R")
 
 ## Read AQ-Data and Add Covariates
 
+Daily, monthly, or annual AQ data is imported according to the specified temporal chunk.
+
+Covariates are then loaded based on the temporal extent of AQ data. Thereby each layer is warped to match the spatial grid or the 1 km Corine Lanc Cover (CLC) dataset.
+
+ETC uses different combinations of covariates for each pollutant, which `load_ETC_covs()` accounts for.
+
+- PM10: log_cams, elevation, ws, rh, clc
+- PM2.5: log_cams, elevation, ws, clc
+- O3: cams, elevtion, ws, ssr 
+- NO2: cams, elevation, elevation 5km, ws, ssr, S5P, pop, clc, clc 5km
+
 ```{r}
 y = 2019
 poll = "PM10"
@@ -28,24 +39,7 @@ stat = "perc"
 load_poll(poll, stat, y, m=6)           # monthly aq aggregates for June 2019
 load_poll(poll, stat, y, d=350)         # daily aq aggregates for day 350 in 2019
 
-pm10 = load_poll(poll, stat, y)
-
-aq = pm10
-
-
-
-
-cams = read_stars("supplementary/03_annual/PM10_annual_2019.nc", proxy = F)
-#read_stars("supplementary/static/")
-ws = read_stars("supplementary/03_annual/Wind_Speed_annual_2019.nc", proxy = F)
-rh = read_stars("supplementary/03_annual/Rel_Humidity_annual_2019.nc", proxy = F)
-
-c(ws, rh)
-
-# PM10: log_cams, elevation, ws, rh, clc
-# PM2.5: log_cams, elevation, ws, clc
-# O3: cams, elevtion, ws, ssr 
-# NO2: cams, elevation, elevation 5km, ws, ssr, S5P, pop, clc, clc 5km
+aq = load_poll(poll, stat, y)           # annual aq aggrgates for 2019
 
 tic()
 aq_cov = load_ETC_covs_annual(aq)
@@ -54,15 +48,45 @@ toc()
 ```
 
 
-## Split Data into Station-Type/-Area Groups
+## Linear Models for each Station-Area/-Type Group
+
+- rural background (RB)
+- urban background (UB)
+- urban traffic (UT)
 
 ```{r}
-table(aq$StationArea, aq$StationType)
 
-aq_rural_background = filter(aq, StationType == "background", StationArea == "rural")
-aq_urban_background = filter(aq, StationType == "background", StationArea %in% c("urban", "suburban"))
-aq_urban_traffic = filter(aq, StationType == "traffic", StationArea %in% c("urban", "suburban"))
+aq_at = filter_area_type(aq, area_type = "RB")              
+
+lm_rb = linear_aq_model(aq_at, aq_cov)
+summary(lm_rb)
+
+# summary(filter_area_type(aq, area_type = "UB") |>  linear_aq_model(aq_cov))
+# summary(linear_aq_model(aq, aq_cov, area_type = "UT"))
+
+
 
 ```
+
+```{r}
+aq_at = cbind(aq_at[-attr(lm_rb$model, "na.action"),], lm_rb$model[,2:ncol(lm_rb$model)])
+aq_at$res = lm_rb$residuals
+
+vario = automap::autofitVariogram(res~1, aq_at)
+print(vario)
+plot(vario)
+vr_m = vario$var_model
+lm_formula = attr(lm_rb, "formula")
+
+tic()
+k = krige(lm_formula, locations = aq_at, newdata = aq_cov, model = vr_m)
+message("Kriging complete.")
+toc()
+
+
+
+```
+
+
 
 

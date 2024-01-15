@@ -3,8 +3,9 @@ title: "Download EEA AQ Station Data"
 author: "Johannes Heisig"
 date: "`r Sys.Date()`"
 format: 
-  html: default
   gfm: default
+  html: 
+    embed-resources: true
 knitr:
   opts_knit:
     root.dir: "/mnt/cloud/wwu1/ec_bronze/_nogroup/ae78a1ca-a0e8-4e4e-8992-69c34947db65/UseCase_AIRCON"
@@ -16,6 +17,7 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(tidyr)
   library(sf)
+  library(data.table)
 })
 
 source("R/functions.R")
