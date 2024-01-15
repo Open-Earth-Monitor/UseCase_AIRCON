@@ -4,7 +4,7 @@ output: github_document
 
 # OEMC Use Case 23: Air Quality Monitoring at Continental Scale
 
-The goal is to create annual, monthly, and potentially hourly maps of four key air quality indicators (NO2, O3, PM10, PM2.5). Hourly data from about 6000 EEA measurement stations throughout the EU serves as basis for interpolation. Supplementary variables such as population density, land cover, climatology are further inputs to a universal Kriging method.
+The goal is to create annual, monthly, daily, and potentially hourly maps of four key air quality indicators (NO2, O3, PM10, PM2.5). Hourly data from about 6,000 EEA measurement stations throughout the EU serves as basis for interpolation. Supplementary variables such as population density, land cover, climatology are further inputs to a universal Kriging method.
 
 # ToDo
 
@@ -15,9 +15,6 @@ The goal is to create annual, monthly, and potentially hourly maps of four key a
 -   [x] write function to filter for rural/urban/suburban & background/traffic
     -   *include traffic or not? different approaches in the reports*
 -   [x] write function to join pollutant tables and station meta data
--   write function to aggregate temporal dimension (year, month, day)
-    -   [x] simple mean
-    -   [x] specific percentiles (for O3, NO2)
 -   [x] download station data for all countries (2015-2023)
 -   [x] preprocess all station data
 
@@ -25,11 +22,11 @@ The goal is to create annual, monthly, and potentially hourly maps of four key a
 
 predictors:
 
--   coordinates
--   population density
--   sun shine duration
-    -   ERA5 alternative: [`surface_net_solar_radiation`](https://codes.ecmwf.int/grib/param-db/?id=176)
--   [x] gapfill all PM2.5
+-   [x] gapfill all PM2.5 with predictors according to EEA
+  -   coordinates
+  -   population density
+  -   sun shine duration
+      -   ERA5 alternative: [`surface_net_solar_radiation`](https://codes.ecmwf.int/grib/param-db/?id=176)
 
 ## Temporal aggregates (annual, monthly, daily)
 -   [x] NO2 (mean)
@@ -86,8 +83,11 @@ predictors:
 
 - [x] function to read aq data
 - [x] function to read and warp covariates to a common grid
+- [ ] function wrapping lm
+- [ ] function for residual kriging in parallel
 
 create 3 separate map layers based on...
+
   - rural background stations
   - urban/suburban background stations
   - urban/suburban traffic station
@@ -96,7 +96,8 @@ create 3 separate map layers based on...
 
 ## Merging
 
--   tbd...
+- [x] rasterize GRIP road data (area impacted by traffic)
+- [ ] function to merge the 3 map layers
 
 # Codeflow
 
