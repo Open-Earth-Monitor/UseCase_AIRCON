@@ -419,7 +419,7 @@ wspeed <-function(u, v,  units = F){
 
 ## Interpolation ===============================================================
 
-load_poll = function(poll, stat, y, m=0, d=0){
+load_poll = function(poll, stat, y, m=0, d=0, sf = T){
   if (!any(m==0, d==0)) stop("Supply only either m (month, 1-12) or d (day of year; 1-365).")
   if (!poll %in% c("PM10","PM2.5","O3","NO2")) stop("Select one of PM10, PM2.5, O3, NO2.")
   if (!stat %in% c("perc", "mean")) stop("Select one of mean or perc.")
@@ -431,19 +431,22 @@ load_poll = function(poll, stat, y, m=0, d=0){
     dir = paste0(dir, "/", poll, "_", stat)
     info = paste(info, "- Day of Year =", d)
     message(info)
-    arrow::open_dataset(dir) |> dplyr::filter(year == y, doy == d) |> dplyr::collect()
+    x = arrow::open_dataset(dir) |> dplyr::filter(year == y, doy == d) |> dplyr::collect()
   } else if (m > 0){
     pfile = list.files(dir, pattern = glob2rx( paste0(poll, "*", stat, "*")), full.names = T)
     stopifnot(length(pfile)==1)
     info = paste(info, "- Month =", m)
     message(info)
-    arrow::read_parquet(pfile) |> dplyr::filter(year == y, month == m)
+    x = arrow::read_parquet(pfile) |> dplyr::filter(year == y, month == m)
   } else {
     pfile = list.files(dir, pattern = glob2rx( paste0(poll, "*", stat, "*")), full.names = T)
     stopifnot(length(pfile)==1)
     message(info)
-    arrow::read_parquet(pfile) |> dplyr::filter(year == y)
+    x = arrow::read_parquet(pfile) |> dplyr::filter(year == y)
   }
+  if (sf) x = sf::st_as_sf(x, coords=c( "Longitude", "Latitude"), crs = sf::st_crs(4326), remove = F) |> 
+    sf::st_transform(sf::st_crs(3035))
+  return(x)
 }
 
 
@@ -465,17 +468,51 @@ load_ETC_covs_annual = function(aq){
   
   ws = read_n_warp(paste0("supplementary/03_annual/Wind_Speed_annual_", y, ".nc"), n = "WindSpeed")
   
-  clc_st = stars::st_as_stars(clc) |> setNames("CLC")
-  stars::st_dimensions(clc_st)$x$point = NULL; stars::st_dimensions(clc_st)$y$point = NULL
+  clc_st = stars::st_as_stars(clc) |> setNames("CLC") |> 
+    dplyr::mutate(CLC = factor(CLC, levels = 1:8, labels = c("HDR", "LDR", "IND","TRAF","UGR","AGR","NAT","OTH")))
+  #stars::st_dimensions(clc_st)$x$point = NULL; stars::st_dimensions(clc_st)$y$point = NULL
   stars::st_dimensions(clc_st) = stars::st_dimensions(cams)
   
-  l = switch(poll, 
-             "PM10" = list(log(cams) |> setNames(paste0("log_", cams_name)), ws, clc_st, # alt,
-                           read_n_warp(paste0("supplementary/03_annual/Rel_Humidity_annual_", y, ".nc"), n = "RelHumidity")), 
-             "PM2.5" = list(log(cams) |> setNames(paste0("log_", cams_name)), ws, clc_st), #, alt)
-             "O3" = list(cams, ws, clc_st, 
-                         read_n_warp(paste0("supplementary/03_annual/Solar_Radiation_annual_", y, ".nc"), n = "SolarRadiation")))
+  dtm = stars::read_stars("supplementary/static/DTM_GEDI_1km.tif") |> setNames("Elevation")
+  #stars::st_dimensions(clc_st)$x$point = NULL; stars::st_dimensions(clc_st)$y$point = NULL
+  stars::st_dimensions(dtm) = stars::st_dimensions(cams)
+  
+  l = switch(
+    poll, 
+    "PM10" = list(log(cams) |> setNames(paste0("log_", cams_name)), ws, clc_st, dtm,
+                  read_n_warp(paste0("supplementary/03_annual/Rel_Humidity_annual_", y, ".nc"), n = "RelHumidity")), 
+    "PM2.5" = list(log(cams) |> setNames(paste0("log_", cams_name)), ws, clc_st, dtm),
+    "O3" = list(cams, ws, clc_st, dtm,
+                read_n_warp(paste0("supplementary/03_annual/Solar_Radiation_annual_", y, ".nc"), n = "SolarRadiation")))
   # "NO2 = ...
   
   do.call(c, l)
+}
+
+filter_area_type = function(aq, area_type = "RB"){
+  if (!area_type %in% c("RB", "UB", "UT")) stop("area_type should be one of c(RB, UB, UT)!")
+  
+  switch(area_type,
+         "RB" = dplyr::filter(aq, StationType == "background", StationArea == "rural"), 
+         "UB" = dplyr::filter(aq, StationType == "background", StationArea %in% c("urban", "suburban")), 
+         "UT" = dplyr::filter(aq, StationType == "traffic", StationArea %in% c("urban", "suburban"))) |>
+    na.omit() |> 
+    dplyr::select(-c(SSR, Countrycode, StationType, StationArea, Elevation, Population)) |> 
+    dplyr::rename("CLC" = "CLC8")
+}
+
+linear_aq_model = function(aq, covariates){
+  
+  if (!all(any(class(aq)=="sf"), class(covariates)=="stars")) stop("Please supply an sf-object (aq) and the corresponding covariates as stars-object.")
+  #if (! identical(sf::st_crs(aq), sf::st_crs(covariates))) stop("CRSs of aq and covariates do not match!")
+  
+  pn = c("PM2.5", "PM10", "NO2", "O3")
+  poll = pn[which(pn %in% names(aq))]
+  
+  aq_ext = stars::st_extract(covariates, aq)
+  aq_join = sf::st_join(dplyr::select(aq, 1:{{poll}}), aq_ext) 
+  frm = as.formula(paste(poll, "~", paste(names(aq_cov), collapse = "+")))
+  l = lm(frm, aq_join)
+  attr(l, "formula") = frm
+  return(l)
 }
