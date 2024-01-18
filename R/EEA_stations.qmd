@@ -1,5 +1,5 @@
 ---
-title: "EEA AQ Stations"
+title: "EEA Air Quality Stations"
 author: "Johannes Heisig"
 date: "`r Sys.Date()`"
 format: 
@@ -10,43 +10,47 @@ knitr:
     root.dir: "/mnt/cloud/wwu1/ec_bronze/_nogroup/ae78a1ca-a0e8-4e4e-8992-69c34947db65/UseCase_AIRCON"
 ---
 
-```{r}
+```{r pkgs}
 suppressPackageStartupMessages({
-library(dplyr)
-library(tidyr)
-library(stars)
-library(terra)
+  library(dplyr)
+  library(tidyr)
+  library(sf)
+  library(arrow)
+  library(geoarrow)
 })
 ```
 
 # Stations
 
-Create a table with rows for each station and pollutant recorded. Stations have a type (background, industrial, traffic), an area label (rural, urban, suburban), and coordinates in lon/lat.
+Create a table with rows for each station. Each has a type (background, industrial, traffic), an area label (rural, urban, suburban), and coordinates in lon/lat.
 
 Station [meta data file](https://discomap.eea.europa.eu/map/fme/metadata/PanEuropean_metadata.csv) comes from EEA.
 
 ```{r}
-station_meta = read.table("AQ_stations/PanEuropean_metadata.csv", sep = "\t", header = T) |> 
-  dplyr::select(AirQualityStationEoICode, Countrycode, Longitude, Latitude,
-                StationType = AirQualityStationType, 
-                StationArea = AirQualityStationArea,
-                AirPollutant = AirPollutantCode) |> 
-  dplyr::mutate(AirPollutant = factor(basename(AirPollutant),
-                                      levels = c(6001, 5, 8, 7),
-                                      labels = c("PM2.5", "PM10", "NO2", "O3"))) |> 
-  dplyr::filter(!is.na(AirPollutant)) |> 
+station_meta = read.table("AQ_stations/PanEuropean_metadata.csv", 
+                          sep = "\t", header = T) |> 
+  select(AirQualityStationEoICode, Countrycode, 
+         Longitude, Latitude,
+         StationType = AirQualityStationType, 
+         StationArea = AirQualityStationArea,
+         AirPollutant = AirPollutantCode) |> 
+  mutate(AirPollutant = factor(basename(AirPollutant),
+                               levels = c(6001, 5, 8, 7),
+                               labels = c("PM2.5", "PM10", "NO2", "O3"))) |> 
+  filter(!is.na(AirPollutant)) |> 
   unique() |> 
-  dplyr::mutate(AirQualityStationEoICode = as.factor(AirQualityStationEoICode),
-                Countrycode = as.factor(Countrycode),
-                StationType = as.factor(StationType),
-                StationArea = as.factor(StationArea)) |> 
-  dplyr::group_by(AirQualityStationEoICode, Countrycode, 
-                  StationType, StationArea, AirPollutant) |>
-  dplyr::summarise(Longitude = mean(Longitude), Latitude = mean(Latitude), .groups = 'drop') |> 
-  dplyr::group_by(AirQualityStationEoICode, StationArea, AirPollutant) |> 
+  mutate(AirQualityStationEoICode = as.factor(AirQualityStationEoICode),
+         Countrycode = as.factor(Countrycode),
+         StationType = as.factor(StationType),
+         StationArea = as.factor(StationArea)) |> 
+  group_by(AirQualityStationEoICode, Countrycode, 
+           StationType, StationArea, AirPollutant) |>
+  summarise(Longitude = mean(Longitude), 
+            Latitude = mean(Latitude), .groups = 'drop') |> 
+  group_by(AirQualityStationEoICode, StationArea, AirPollutant) |> 
   # if two types registered for 1 station, label them as non-background (n=45).
-  dplyr::filter(!(dplyr::n() > 1 & !StationType == "background")) |> 
-  dplyr::ungroup()
+  filter(!(n() > 1 & !StationType == "background")) |> 
+  ungroup()
 
 station_laea = 
   select(station_meta, AirQualityStationEoICode, Longitude, Latitude) |> 
@@ -55,107 +59,40 @@ station_laea =
   st_transform(st_crs(3035))
 ```
 
-# Supplementary Data
-
-## Elevation
-
-```{r}
-elev = "supplementary/EEA_stations_elevation.parquet"
-
-if (!file.exists(elev)){
-  dem = stars::read_stars("/vsicurl/https://s3.eu-central-1.wasabisys.com/eumap/dtm/dtm_elev.lowestmode_gedi.eml_mf_30m_0..0cm_2000..2018_eumap_epsg3035_v0.3.tif")
-  
-  Sys.setenv(GDAL_HTTP_MULTIRANGE = 'YES',
-             GDAL_DISABLE_READDIR_ON_OPEN="YES")
-  
-  tictoc::tic()
-  station_laea$Elevation = stars::st_extract(dem, station_laea) |> pull(1)
-  arrow::write_parquet(st_drop_geometry(station_laea), elev)
-  tictoc::toc()
-  
-} else {
-  station_elevation = arrow::read_parquet(elev) |> 
-    mutate(Elevation = ifelse(Elevation < -100, NA, Elevation))
-}
-
-(station_laea = left_join(station_laea, station_elevation))
-```
-
-## Corine Land Cover
-
-```{r}
-clc_8class = "supplementary/CLC_reclass_8.tif"
-if (!file.exists(clc_8class)){
-  lc = rast("supplementary/lcv_landcover.clc_corine_c_100m_0..0cm_2018_eumap_epsg3035_v2020.tif")
-  NAflag(lc) = 128
-  summary(lc)
-  rcl = cbind(c(1:48),
-              c(1,2,3, rep(4,3), rep(3,3), rep(5,2), rep(6, 11), rep(7,12), rep(8,14)))
-  lc8 = classify(lc, rcl, filename = clc_8class,
-                 datatype = "INT1U", NAflag = 0, overwrite=T,
-                 gdal=c("COMPRESS=DEFLATE"))
-} else {
-  lc8 = rast(clc_8class)
-}
-NAflag(lc8) = 128
-levels(lc8) =  data.frame(id = c(1:8),
-                          CLC8 = c("HDR", "LDR", "IND","TRAF","UGR","AGR","NAT","OTH"))
-plot(lc8)
-```
-
-```{r}
-station_laea$CLC8 = extract(lc8, vect(station_laea)) |> pull(2)
-```
-
-## Population Density
-
-```{r}
-pop = rast("supplementary/JRC_1K_POP_2018.tif")
-plot(pop, breaks = c(0,5,10,50,100,500,1000))
-station_laea$Population = extract(pop, vect(station_laea)) |> pull(2) |> replace_na(0)
-```
 
 # Result
 
 ```{r check-station-meta}
-station_meta = left_join(station_meta, station_laea)
 summary(station_meta)
 
 table(station_meta$AirPollutant, station_meta$StationType)
 table(station_meta$AirPollutant, station_meta$StationArea)
 table(station_meta$StationArea, station_meta$StationType)
 
-station_meta_sf = sf::st_as_sf(station_meta, coords = c("Longitude","Latitude"), crs = 4326)
-
-# filter(station_meta_sf, 
-#        StationType == "background",
-#        AirPollutant == "NO2") |> 
-#   mapview::mapview(zcol="StationArea")
-
-# filter(station_meta_sf, is.na(CLC8)) |> 
-#   mapview::mapview(zcol="StationArea")
-# 
-# filter(station_meta_sf, is.na(Elevation)) |> 
-#   mapview::mapview(zcol="Countrycode")
-
-station_final = filter(station_meta_sf,
-                       !is.na(CLC8),
-                       !is.na(Elevation)) |> 
-  select(-AirPollutant) |> 
+station_final = select(station_meta, -AirPollutant) |> 
   group_by(AirQualityStationEoICode, Countrycode) |> 
   filter(row_number()==1)
 
-mapview::mapview(station_final, zcol="CLC8")
 summary(station_final)
 ```
 
-Write files
+# Write files
 
 ```{r}
-bind_cols(st_drop_geometry(station_final), 
-      data.frame(st_coordinates(station_final)) |> 
-        setNames(c("Longitude","Latitude"))) |> 
-  arrow::write_parquet("AQ_stations/EEA_stations_meta.parquet")
+write_parquet(station_final, "AQ_stations/EEA_stations_meta.parquet")
 
-geoarrow::write_geoparquet(station_final, "AQ_stations/EEA_stations_meta_sf.parquet")
+
+station_final_sf = st_as_sf(station_final, crs = 4326, remove = F, 
+                            coords = c("Longitude","Latitude")) |> 
+  st_transform(st_crs(3035)) 
+
+write_geoparquet(station_final_sf, 
+                 "AQ_stations/EEA_stations_meta_sf.parquet")
 ```
+
+
+```{r}
+filter(station_final_sf, between(Longitude, -25, 45))["StationType"] |> 
+  plot(axes=T, pch=16, cex = 0.7)
+```
+
