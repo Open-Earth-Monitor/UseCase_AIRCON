@@ -1,8 +1,8 @@
 library(ecmwfr)
 #source("functions.R")
 options(keyring_backend="file")
+source("R/ecmwf_login.R")
 
-#source("R/ecmwf_login.R")
 # wf_set_key(user = uid_era, key = key_era, service = "cds")
 
 box = c(72, -25, 30, 45)
@@ -15,7 +15,7 @@ variables = c('10m_u_component_of_wind',
 
 
 # create and store requests
-for (y in 2022:2015){
+for (y in 2023:2015){
   for(v in variables){
     file = paste0("supplementary/era5_download/ERA5_", v, "_hrly_", y,".nc")
     
@@ -45,18 +45,22 @@ for (y in 2022:2015){
 
 # download in case request has been processed ("completed")
 reqs = list.files("supplementary/era5_requests", full.names = T)
+njobs = 1
 for (r in reqs) {
   req = readRDS(r)
   req = req$update_status()
   if (req$get_status() == "completed") {
     file = req$get_request()$target
-    message(file)
-    job::job({
-      source("R/ecmwf_login.R")
-      req$.__enclos_env__$private$file = file
-      req$.__enclos_env__$private$path = req$.__enclos_env__$private$path |> dirname()
-      req$download(verbose = T)
-    }, import = "auto", packages = "ecmwfr", title = basename(file))
+    if (!file.exists(file)){
+      message(basename(file), ": start download ", njobs)
+      job::job({
+        source("R/ecmwf_login.R")
+        req$.__enclos_env__$private$file = file
+        req$.__enclos_env__$private$path = req$.__enclos_env__$private$path |> dirname()
+        req$download(verbose = T)
+      }, import = "auto", packages = "ecmwfr", title = basename(file))
+      njobs = njobs+1
+    }
   }
 }
 

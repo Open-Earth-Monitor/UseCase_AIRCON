@@ -41,11 +41,11 @@ parse_request = function(year, var, semester, bbox = box){
                  year = year, month = monthdate[["month"]], variable = var, model = 'ensemble',
                  level = 0, format = "zip", type = ifelse(year < 2021, 'validated_reanalysis', 'interim_reanalysis'), 
                  dataset_short_name = 'cams-europe-air-quality-reanalyses', 
-                 target = paste0("CAMS_", var, "_hrly_", year,"_reanalysis_", semester,".nc")),
+                 target = paste0("CAMS_", var, "_hrly_", year,"_reanalysis_", semester,".zip")),
                "forecast" = list(
                    date = monthdate[["date"]], time = paste0(c(paste0(0,0:9), 10:23), ":00"),
                    variable = var, leadtime_hour = 0, level = 0, area = box, 
-                   target = paste0("CAMS_", var, "_hrly_", year,"_forecast_", semester,".nc"),
+                   target = paste0("CAMS_", var, "_hrly_", year,"_forecast_", semester,".zip"),
                    format = "netcdf", type = 'analysis', model = 'ensemble',
                    dataset_short_name = 'cams-europe-air-quality-forecasts')
                 )
@@ -73,7 +73,7 @@ for (y in 2023:2015){
 
 # download in case request has been processed ("completed")
 reqs = list.files("supplementary/cams_requests", full.names = T)
-for (r in reqs) {
+for (r in reqs[33]) {
   req = readRDS(r)
   req = req$update_status()
   file = file.path("supplementary/cams_download", req$get_request()$target)
@@ -95,3 +95,15 @@ for (r in reqs) {
   })
 }
 
+# unzip
+zipfiles = list.files("supplementary/cams_download", "CAMS_", full.names = T)
+unz_del = function(f){
+  if (!grepl("2023",f)){
+    system(paste("unzip -u -d supplementary/cams_download", f))
+    unlink(f)
+  }
+}
+
+lapply(zipfiles, unz_del)
+
+pbmcapply::pbmclapply(zipfiles, unz_del, mc.cores = 4)

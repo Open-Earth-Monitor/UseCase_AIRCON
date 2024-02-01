@@ -51,27 +51,5 @@ job::job({
   pbmcapply::pbmclapply(grid$Product30, download_copdem_90m, mc.cores = 8)
 })
 
-# Merge
-tifs = list.files("supplementary/static/COP-DEM/tiles", full.names = T)
-length(tifs) == nrow(grid)
-read_stars(tifs[1000]) |> plot()
 
-
-library(gdalUtilities)
-
-#vrt = gdalbuildvrt(tifs, "supplementary/static/COP-DEM/dem.vrt")
-vrt = "supplementary/static/COP-DEM/dem.vrt"
-
-gdalinfo("supplementary/static/CLC_reclass_8_1km.tif")
-dem1k = gdalwarp(vrt, "supplementary/static/COP-DEM/COP_DEM_Europe_1km_epsg3035.tif", 
-                 t_srs = "EPSG:3035", te_srs = "EPSG:3035", r = "bilinear", #dryrun = T,
-                 te = c(944000.000, 942000.000, 6505000.000, 5414000.000), tr = c(1000,1000),
-                 wo = c("NUM_THREADS=8"), wm = 500, config_options = c("GDAL_CACHEMAX"="500"),
-                 multi = T, co = c("COMPRESS=DEFLATE", "PREDICTOR=3"))
-read_stars("supplementary/static/COP-DEM/COP_DEM_Europe_1km_epsg3035.tif") |> plot()
-
-dem90 = gdalwarp(vrt, "supplementary/static/COP-DEM/COP_DEM_Europe_90m_epsg3035.tif", 
-                 t_srs = "EPSG:3035", r = "bilinear", tr = c(90,90), dryrun = T,
-                 wo = c("NUM_THREADS=16"), wm = 500, config_options = c("GDAL_CACHEMAX"="500"),
-                 multi = T, co = c("COMPRESS=DEFLATE", "PREDICTOR=3", "BIGTIFF=YES"))
 
