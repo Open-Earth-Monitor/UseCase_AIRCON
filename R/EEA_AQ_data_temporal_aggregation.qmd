@@ -9,85 +9,71 @@ knitr:
   opts_knit:
     root.dir: "/mnt/cloud/wwu1/ec_bronze/_nogroup/ae78a1ca-a0e8-4e4e-8992-69c34947db65/UseCase_AIRCON"
 ---
+## Setup
 
-```{r}
-suppressPackageStartupMessages({
-  library(dplyr)
-  library(arrow)
-  library(ggplot2)
-})
+```{r setup}
+library(pbmcapply) # for parallel processing
+library(tictoc)    # for timing
+
 if (! basename(getwd()) == "UseCase_AIRCON") setwd("UseCase_AIRCON")
-source("R/functions.R")
-station_meta = read_parquet("AQ_stations/EEA_stations_meta.parquet")
+source("R/functions.R") 
 ```
 
-Interpolated air quality maps for Europe will be processed at a temporal resolution of days, months, and years. As input
+## Overview
 
-## Open AQ data
+Interpolated air quality maps for Europe will be processed at a temporal resolution of days, months, and years. For this reason hourly air quality (AQ) data needs to be aggregated to coarse temporal steps. Hourly PM2.5 time series were previously gap-filled. In the aggregation process the temporal coverage of each pollutant and measurement station is assessed at daily, monthly and annual level. Observations exceeding a threshold (e.g. 75\%) are flagged. 
 
-Open gapfilled hourly AQ data from a partition of parquet files and add temporal variables for
 
--   year (2015-2023)
--   month (1-12)
--   day of year (1-365)
+The function `process_temp_agg()` takes the path to a gap-filled (country-level) AQ data file, as well as the name of a pollutant of interest and a threshold for flagging sufficient temporal data coverage. To calculate a certain percentile instead of the mean, one can supply a value to the `perc` argument. The function returns nothing but writes daily, monthly and annual aggregates directly to file.
 
-```{r}
-aq = open_dataset("AQ_data/03_hourly_gapfilled") |> add_ymd()
-```
+Aggregating ozone measurements requires special attention and is described in more detail below.
 
-## Select stations with sufficient temporal coverage
+## Temporal Means
 
-Check the percentage of missing measurements per station, pollutant, and year to select suitable time series. The annual temporal coverage of hourly measurements should be greater then 75%.
+PM10, PM2.5 and NO2 are aggregated using the `mean()` function for all temporal resolutions.
 
-```{r}
-s = "hour"
-temp_cov = concat_tables(
-  pm10 = check_temp_cov(aq, step = s, p = "PM10"),
-  pm25 = check_temp_cov(aq, step = s, p = "PM2.5"),
-  o3   = check_temp_cov(aq, step = s, p = "O3"),
-  no2  = check_temp_cov(aq, step = s, p = "NO2")
-)
+```{r means}
+gapfilled = list.files("AQ_data/03_hourly_gapfilled", full.names = T)
+pollutants = c("PM10", "PM2.5", "NO2")
 
-stations_covered = filter(temp_cov, cov > 0.75) |> select(-cov) #|> as_arrow_table()
-nrow(stations_covered)
-```
-
-## Temporal aggregates
-
-Turn the dataset query (`aq`) into an Arrow Table. `aq_table` is large (\~20 GB) and has \~165 mio. rows.
-
-```{r}
-aq_table = select(aq, AirQualityStationEoICode, NO2:PM10, SSR, year, month, doy) |> 
-  as_arrow_table()
-```
-
-Aggregates are performed using the `mean` function or a pollutant-specific percentile.
-
--   PM10: mean & 90.4 percentile (formerly 36th highest value)
--   PM 2.5 & NO2: mean
--   O3: mean & 93.2 percentile of daily 8-hour maximum (formerly 26th highest value)
-
-```{r}
-pollutants = c("O3", "PM10", "PM2.5", "NO2")
-steps = c("year", "month", "day")
-ow = F
-
-for (s in steps){
-  for (p in pollutants){
-    message("Aggregating ", p, " by ", s, " using mean.")
-    process_temp_agg(aq_table, p, s, overwrite = ow)
-    
-    if (p == "PM10"){
-      message("Aggregating ", p, " by ", s, " using percentile")
-      process_temp_agg(aq_table, p, s, perc = 0.904, overwrite = ow)
-    }
-    if (p == "O3"){
-      message("Aggregating ", p, " by ", s, " using percentile")
-      process_temp_agg(aq_table, p, s, perc = 0.932, overwrite = ow)
-    }
-  }
+for (p in pollutants){
+  message(p)
+  tic()
+  m = pbmclapply(gapfilled, process_temp_agg, p, cov_threshold = 0.75, mc.cores = 8) 
+  toc()
 }
 ```
+
+```{r gc, eval=TRUE, include=FALSE, echo=FALSE}
+gc()
+```
+
+
+## PM10: 90.41th percentile of daily means
+
+Beside the mean, PM10 is aggregated using the 90.41th percentile (formerly 36th highest value) for monthly and annual aggregates.
+
+```{r pm10}
+tic()
+pm = pbmclapply(gapfilled, process_temp_agg, "PM10", perc = 0.9041, 
+           cov_threshold = 0.75, mc.cores = 8)
+toc()
+```
+
+## Ozone: 93.15th percentile of daily maxima of the 8 hour running mean
+
+Ozone data requires a different temporal aggregation method than other pollutants where averages span over a moving window of 8 hours. Each station's O3 time series is filled with missing values for hours where no observation was recorded. The 8 hour running mean is then calculated with the requirement of 6 valid (non-missing) values among the 8 values of interest.
+Daily aggregates represent the maximum of the 8 hour running mean within 24 hours. Monthly and annual aggregates represent the 93.15th percentile of the daily aggregates. A threshold is applied to flag aggregates which fulfill a certain coverage requirement.
+
+This more complex approach is implemented in `process_temp_agg_8hm()`
+
+```{r o3}
+tic()
+o3 = pbmclapply(gapfilled, process_O3_temp_agg_8hm, perc = 0.9315, 
+           cov_threshold = 0.75, mc.cores = 8)
+toc()
+```
+
 
 ```{r, eval=FALSE, include=FALSE}
 v = "NO2"
@@ -104,7 +90,6 @@ d = open_dataset(paste0("AQ_data/04_daily/",v,"_", mod)) |> select(names(a)) |> 
   filter(!is.na(!! vv))
 ggplot(d, aes(Countrycode, !! vv)) + geom_boxplot(aes(color = StationType)) + ggtitle(paste("Daily", v))
 ggsave(paste0("AQ_data/04_daily/boxplots_by_country/", v, ".png"))
-```
 
 ## Distribution of daily means by country
 
@@ -115,4 +100,6 @@ ggsave(paste0("AQ_data/04_daily/boxplots_by_country/", v, ".png"))
 ![](images/PM10.png)
 
 ![](images/PM2.5.png)
+```
+
 

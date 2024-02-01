@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 <meta name="author" content="Johannes Heisig">
-<meta name="dcterms.date" content="2023-11-13">
+<meta name="dcterms.date" content="2024-01-25">
 
 <title>Gapfilling of hourly PM2.5 data for all countries</title>
 <style>
@@ -99,7 +99,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">November 13, 2023</p>
+      <p class="date">January 25, 2024</p>
     </div>
   </div>
   
@@ -114,9 +114,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(arrow)</span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tictoc)</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>})</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/functions.R"</span>)</span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>station_meta <span class="ot">=</span> <span class="fu">read_parquet</span>(<span class="st">"AQ_stations/EEA_stations_meta.parquet"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(stars)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/functions.R"</span>)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>station_meta <span class="ot">=</span> <span class="fu">read_parquet</span>(<span class="st">"AQ_stations/EEA_stations_meta.parquet"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <section id="read-data" class="level1">
 <h1>Read Data</h1>
@@ -124,57 +125,87 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="cell">
 <div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tic</span>()</span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>aq <span class="ot">=</span> <span class="fu">open_dataset</span>(<span class="st">"AQ_data/02_hourly_SSR"</span>) <span class="sc">|&gt;</span> </span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(PM10), <span class="sc">!</span><span class="fu">is.na</span>(PM2<span class="fl">.5</span>)) <span class="sc">|&gt;</span> </span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(PM10), <span class="sc">!</span><span class="fu">is.na</span>(PM2<span class="fl">.5</span>), PM2<span class="fl">.5</span> <span class="sc">&gt;</span> <span class="dv">0</span>, PM10 <span class="sc">&gt;</span> <span class="dv">0</span>) <span class="sc">|&gt;</span> </span>
 <span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">collect</span>()</span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>aq</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>pm2<span class="fl">.5</span>_99<span class="fl">.9</span> <span class="ot">=</span> <span class="fu">quantile</span>(aq<span class="sc">$</span>PM2<span class="fl">.5</span>, <span class="fl">0.999</span>)</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>pm10_99<span class="fl">.9</span> <span class="ot">=</span> <span class="fu">quantile</span>(aq<span class="sc">$</span>PM10, <span class="fl">0.999</span>)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>aq <span class="ot">=</span> <span class="fu">filter</span>(aq, PM2<span class="fl">.5</span> <span class="sc">&lt;=</span> pm2<span class="fl">.5</span>_99<span class="fl">.9</span>, PM10 <span class="sc">&lt;=</span> pm10_99<span class="fl">.9</span>)</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="fu">toc</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code># A tibble: 39,487,474 × 15
-   AirQualityStationEoICode StationArea StationType Longitude Latitude Elevation
-   &lt;fct&gt;                    &lt;fct&gt;       &lt;fct&gt;           &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;
- 1 AD0942A                  urban       background       1.54     42.5     10444
- 2 AD0942A                  urban       background       1.54     42.5     10444
- 3 AD0942A                  urban       background       1.54     42.5     10444
- 4 AD0942A                  urban       background       1.54     42.5     10444
- 5 AD0942A                  urban       background       1.54     42.5     10444
- 6 AD0942A                  urban       background       1.54     42.5     10444
- 7 AD0942A                  urban       background       1.54     42.5     10444
- 8 AD0942A                  urban       background       1.54     42.5     10444
- 9 AD0942A                  urban       background       1.54     42.5     10444
-10 AD0942A                  urban       background       1.54     42.5     10444
-# ℹ 39,487,464 more rows
-# ℹ 9 more variables: Population &lt;int&gt;, CLC8 &lt;fct&gt;, DatetimeBegin &lt;dttm&gt;,
-#   NO2 &lt;dbl&gt;, O3 &lt;dbl&gt;, PM2.5 &lt;dbl&gt;, PM10 &lt;dbl&gt;, Countrycode &lt;fct&gt;, SSR &lt;dbl&gt;</code></pre>
+<pre><code>9.993 sec elapsed</code></pre>
 </div>
-<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">toc</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>aq</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>5.324 sec elapsed</code></pre>
+<pre><code># A tibble: 41,801,144 × 13
+   AirQualityStationEoICode StationArea StationType Longitude Latitude
+   &lt;fct&gt;                    &lt;fct&gt;       &lt;fct&gt;           &lt;dbl&gt;    &lt;dbl&gt;
+ 1 AD0942A                  urban       background       1.54     42.5
+ 2 AD0942A                  urban       background       1.54     42.5
+ 3 AD0942A                  urban       background       1.54     42.5
+ 4 AD0942A                  urban       background       1.54     42.5
+ 5 AD0942A                  urban       background       1.54     42.5
+ 6 AD0942A                  urban       background       1.54     42.5
+ 7 AD0942A                  urban       background       1.54     42.5
+ 8 AD0942A                  urban       background       1.54     42.5
+ 9 AD0942A                  urban       background       1.54     42.5
+10 AD0942A                  urban       background       1.54     42.5
+# ℹ 41,801,134 more rows
+# ℹ 8 more variables: DatetimeBegin &lt;dttm&gt;, NO2 &lt;dbl&gt;, O3 &lt;dbl&gt;, PM2.5 &lt;dbl&gt;,
+#   PM10 &lt;dbl&gt;, Countrycode &lt;fct&gt;, SSR &lt;dbl&gt;, points &lt;int&gt;</code></pre>
 </div>
 <div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">nrow</span>(aq) </span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>[1] 39487474</code></pre>
+<pre><code>[1] 41801144</code></pre>
 </div>
 <div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">table</span>(aq<span class="sc">$</span>StationType, aq<span class="sc">$</span>StationArea)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>            
                 rural rural-nearcity rural-regional rural-remote suburban
-  background  3265483              0              0            0  7209254
+  background  3312987              0              0            0  7191431
   industrial        0              0              0            0        0
-  traffic       85816              0              0            0  2559974
+  traffic       83563              0              0            0  2512848
             
                 urban
-  background 16405778
+  background 18226317
   industrial        0
-  traffic     9961169</code></pre>
+  traffic    10473998</code></pre>
+</div>
+</div>
+</section>
+<section id="add-population-density-information" class="level1">
+<h1>Add Population Density Information</h1>
+<p>Extract population density values from SEDAC raster at each station location.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>pop <span class="ot">=</span> <span class="fu">read_stars</span>(<span class="st">"supplementary/static/pop_density_original_epsg3035.tif"</span>)</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>pop_ex <span class="ot">=</span> <span class="fu">st_extract</span>(pop[<span class="dv">1</span>], </span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>                    station_meta <span class="sc">|&gt;</span> </span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>                      <span class="fu">st_as_sf</span>(<span class="at">coords =</span> <span class="fu">c</span>(<span class="st">'Longitude'</span>, <span class="st">'Latitude'</span>), <span class="at">crs=</span><span class="fu">st_crs</span>(<span class="dv">4326</span>)) <span class="sc">|&gt;</span> </span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>                      <span class="fu">st_transform</span>(<span class="fu">st_crs</span>(<span class="dv">3035</span>))) <span class="sc">|&gt;</span> </span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span> </span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">setNames</span>(<span class="st">"Population"</span>)</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>pop_stations <span class="ot">=</span> <span class="fu">cbind</span>(<span class="at">AirQualityStationEoICode =</span> station_meta<span class="sc">$</span>AirQualityStationEoICode, pop_ex) </span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<p>Join based on station id.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tic</span>()</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>aq <span class="ot">=</span> <span class="fu">left_join</span>(aq, pop_stations, <span class="at">by =</span> <span class="st">"AirQualityStationEoICode"</span>) <span class="sc">|&gt;</span> </span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(Population))</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="fu">toc</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>3.909 sec elapsed</code></pre>
 </div>
 </div>
 </section>
 <section id="gapfilling-model-as-proposed-by-denby-2011-and-horalek-et-al.-2019" class="level1">
 <h1>Gapfilling Model (as proposed by Denby 2011 and Horalek et al.&nbsp;2019)</h1>
-<p>Simple linear model to predict PM2.5 concentrations from PM10, population density, surface solar radiation and coordinates. Models include interactions for station type (background vs traffic) but not for station area.</p>
+<p>Simple linear model to predict PM2.5 concentrations from PM10, population density, surface solar radiation and coordinates. Model includes interactions for station type (background vs traffic) but not for station area.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>lm_pm2<span class="fl">.5</span> <span class="ot">=</span> <span class="fu">lm</span>(PM2<span class="fl">.5</span> <span class="sc">~</span> (PM10 <span class="sc">+</span> Population <span class="sc">+</span> SSR <span class="sc">+</span> Longitude <span class="sc">+</span> Latitude) <span class="sc">*</span> StationType, <span class="at">data =</span> aq)</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(lm_pm2<span class="fl">.5</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>lm_pm2<span class="fl">.5</span> <span class="ot">=</span> <span class="fu">lm</span>(PM2<span class="fl">.5</span> <span class="sc">~</span> (PM10 <span class="sc">+</span> Population <span class="sc">+</span> SSR <span class="sc">+</span> Longitude <span class="sc">+</span> Latitude) <span class="sc">*</span> StationType , <span class="at">data =</span> aq)</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(lm_pm2<span class="fl">.5</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>
 Call:
@@ -182,38 +213,34 @@ lm(formula = PM2.5 ~ (PM10 + Population + SSR + Longitude + Latitude) *
     StationType, data = aq)
 
 Residuals:
-    Min      1Q  Median      3Q     Max 
--9926.3    -6.5    -1.2     5.0  2693.4 
+     Min       1Q   Median       3Q      Max 
+-131.740   -2.884   -0.263    2.673  135.636 
 
 Coefficients:
-                                Estimate Std. Error t value Pr(&gt;|t|)    
-(Intercept)                    2.064e+01  3.221e-02   640.9   &lt;2e-16 ***
-PM10                           9.370e-03  1.729e-05   541.8   &lt;2e-16 ***
-Population                     1.147e-04  7.144e-07   160.5   &lt;2e-16 ***
-SSR                           -2.058e-07  5.162e-10  -398.7   &lt;2e-16 ***
-Longitude                      3.549e-01  3.781e-04   938.5   &lt;2e-16 ***
-Latitude                      -2.187e-01  6.742e-04  -324.4   &lt;2e-16 ***
-StationTypetraffic            -3.525e+01  5.075e-02  -694.6   &lt;2e-16 ***
-PM10:StationTypetraffic        9.790e-01  3.719e-05 26323.8   &lt;2e-16 ***
-Population:StationTypetraffic -1.235e-04  1.041e-06  -118.6   &lt;2e-16 ***
-SSR:StationTypetraffic         9.489e-08  9.289e-10   102.1   &lt;2e-16 ***
-Longitude:StationTypetraffic  -4.223e-01  7.058e-04  -598.4   &lt;2e-16 ***
-Latitude:StationTypetraffic    3.469e-01  1.010e-03   343.6   &lt;2e-16 ***
+                                Estimate Std. Error  t value Pr(&gt;|t|)    
+(Intercept)                   -6.294e+00  1.410e-02  -446.53   &lt;2e-16 ***
+PM10                           6.082e-01  8.259e-05  7363.72   &lt;2e-16 ***
+Population                    -6.506e-05  3.684e-07  -176.58   &lt;2e-16 ***
+SSR                           -1.607e-07  1.941e-10  -828.12   &lt;2e-16 ***
+Longitude                      3.284e-03  1.430e-04    22.96   &lt;2e-16 ***
+Latitude                       1.653e-01  2.793e-04   591.88   &lt;2e-16 ***
+StationTypetraffic             1.709e+01  2.182e-02   783.20   &lt;2e-16 ***
+PM10:StationTypetraffic       -1.571e-01  1.384e-04 -1134.88   &lt;2e-16 ***
+Population:StationTypetraffic  3.239e-05  6.728e-07    48.13   &lt;2e-16 ***
+SSR:StationTypetraffic         1.930e-08  3.529e-10    54.70   &lt;2e-16 ***
+Longitude:StationTypetraffic   1.896e-02  2.565e-04    73.90   &lt;2e-16 ***
+Latitude:StationTypetraffic   -3.205e-01  4.131e-04  -775.86   &lt;2e-16 ***
 ---
 Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
-Residual standard error: 16.63 on 37013409 degrees of freedom
-  (2474053 observations deleted due to missingness)
-Multiple R-squared:  0.9606,    Adjusted R-squared:  0.9606 
-F-statistic: 8.208e+07 on 11 and 37013409 DF,  p-value: &lt; 2.2e-16</code></pre>
+Residual standard error: 7.152 on 38450504 degrees of freedom
+  (2850872 observations deleted due to missingness)
+Multiple R-squared:  0.6783,    Adjusted R-squared:  0.6783 
+F-statistic: 7.37e+06 on 11 and 38450504 DF,  p-value: &lt; 2.2e-16</code></pre>
 </div>
-<div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>caret<span class="sc">::</span><span class="fu">RMSE</span>(<span class="fu">predict</span>(lm_pm2<span class="fl">.5</span>), lm_pm2<span class="fl">.5</span><span class="sc">$</span>model<span class="sc">$</span>PM2<span class="fl">.5</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>caret<span class="sc">::</span><span class="fu">RMSE</span>(<span class="fu">predict</span>(lm_pm2<span class="fl">.5</span>), lm_pm2<span class="fl">.5</span><span class="sc">$</span>model<span class="sc">$</span>PM2<span class="fl">.5</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>[1] 16.62591</code></pre>
-</div>
-<div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>caret<span class="sc">::</span><span class="fu">R2</span>(<span class="fu">predict</span>(lm_pm2<span class="fl">.5</span>), lm_pm2<span class="fl">.5</span><span class="sc">$</span>model<span class="sc">$</span>PM2<span class="fl">.5</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
-<div class="cell-output cell-output-stdout">
-<pre><code>[1] 0.9606183</code></pre>
+<pre><code>[1] 7.152414</code></pre>
 </div>
 </div>
 </section>
@@ -221,24 +248,27 @@ F-statistic: 8.208e+07 on 11 and 37013409 DF,  p-value: &lt; 2.2e-16</code></pre
 <h1>Prediction</h1>
 <p>Map over each country and predict PM2.5 for gaps where PM10 is available by applying the above model. The function <code>fill_pm2.5_gaps()</code> further adds a column named “pseudo” that indicates whether a value was actually measured (0) or inferred through gapfilling (1), before writing to (parquet) file.</p>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>countries <span class="ot">=</span> <span class="fu">as.character</span>(<span class="fu">unique</span>(station_meta<span class="sc">$</span>Countrycode))</span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>filled <span class="ot">=</span> purrr<span class="sc">::</span><span class="fu">map_vec</span>(countries, fill_pm2<span class="fl">.5</span>_gaps, <span class="at">model =</span> lm_pm2<span class="fl">.5</span>, </span>
-<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>                    <span class="at">gap_data =</span> <span class="st">"AQ_data/02_hourly_SSR"</span>,</span>
-<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>                    <span class="at">out_dir =</span> <span class="st">"AQ_data/03_hourly_gapfilled"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>countries <span class="ot">=</span> <span class="fu">as.character</span>(<span class="fu">unique</span>(station_meta<span class="sc">$</span>Countrycode)) <span class="sc">|&gt;</span> <span class="fu">sort</span>()</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>filled <span class="ot">=</span> purrr<span class="sc">::</span><span class="fu">map_vec</span>(countries, fill_pm2<span class="fl">.5</span>_gaps, </span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>                        <span class="at">model =</span> lm_pm2<span class="fl">.5</span>, </span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>                        <span class="at">population_table =</span> pop_stations,</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>                        <span class="at">gap_data =</span> <span class="st">"AQ_data/02_hourly_SSR"</span>,</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>                        <span class="at">out_dir =</span> <span class="st">"AQ_data/03_hourly_gapfilled"</span>,</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>                        <span class="at">overwrite =</span> T)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>AD - AL - AT - BA - BE - BG - CH - CY - CZ - DE - DK - SE - EE - ES - FI - FR - GB - GI - GR - HR - HU - IE - IS - IT - LT - LU - LV - ME - MK - MT - NL - NO - PL - PT - TR - RO - RS - SI - SK - XK - </code></pre>
+<pre><code>AD - AL - AT - BA - BE - BG - CH - CY - CZ - DE - DK - EE - ES - FI - FR - GB - GE - GI - GR - HR - HU - IE - IS - IT - LT - LU - LV - ME - MK - MT - NL - NO - PL - PT - RO - RS - SE - SI - SK - TR - UA - XK - </code></pre>
 </div>
-<div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>filled <span class="sc">|&gt;</span> <span class="fu">basename</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>filled <span class="sc">|&gt;</span> <span class="fu">basename</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code> [1] "AD_hourly_gapfilled.parquet" "AL_hourly_gapfilled.parquet"
  [3] "AT_hourly_gapfilled.parquet" "BA_hourly_gapfilled.parquet"
  [5] "BE_hourly_gapfilled.parquet" "BG_hourly_gapfilled.parquet"
  [7] "CH_hourly_gapfilled.parquet" "CY_hourly_gapfilled.parquet"
  [9] "CZ_hourly_gapfilled.parquet" "DE_hourly_gapfilled.parquet"
-[11] "DK_hourly_gapfilled.parquet" "SE_hourly_gapfilled.parquet"
-[13] "EE_hourly_gapfilled.parquet" "ES_hourly_gapfilled.parquet"
-[15] "FI_hourly_gapfilled.parquet" "FR_hourly_gapfilled.parquet"
-[17] "GB_hourly_gapfilled.parquet" "GI_hourly_gapfilled.parquet"
+[11] "DK_hourly_gapfilled.parquet" "EE_hourly_gapfilled.parquet"
+[13] "ES_hourly_gapfilled.parquet" "FI_hourly_gapfilled.parquet"
+[15] "FR_hourly_gapfilled.parquet" "GB_hourly_gapfilled.parquet"
+[17] "GE_hourly_gapfilled.parquet" "GI_hourly_gapfilled.parquet"
 [19] "GR_hourly_gapfilled.parquet" "HR_hourly_gapfilled.parquet"
 [21] "HU_hourly_gapfilled.parquet" "IE_hourly_gapfilled.parquet"
 [23] "IS_hourly_gapfilled.parquet" "IT_hourly_gapfilled.parquet"
@@ -247,9 +277,10 @@ F-statistic: 8.208e+07 on 11 and 37013409 DF,  p-value: &lt; 2.2e-16</code></pre
 [29] "MK_hourly_gapfilled.parquet" "MT_hourly_gapfilled.parquet"
 [31] "NL_hourly_gapfilled.parquet" "NO_hourly_gapfilled.parquet"
 [33] "PL_hourly_gapfilled.parquet" "PT_hourly_gapfilled.parquet"
-[35] "TR_hourly_gapfilled.parquet" "RO_hourly_gapfilled.parquet"
-[37] "RS_hourly_gapfilled.parquet" "SI_hourly_gapfilled.parquet"
-[39] "SK_hourly_gapfilled.parquet" "XK_hourly_gapfilled.parquet"</code></pre>
+[35] "RO_hourly_gapfilled.parquet" "RS_hourly_gapfilled.parquet"
+[37] "SE_hourly_gapfilled.parquet" "SI_hourly_gapfilled.parquet"
+[39] "SK_hourly_gapfilled.parquet" "TR_hourly_gapfilled.parquet"
+[41] "UA_hourly_gapfilled.parquet" "XK_hourly_gapfilled.parquet"</code></pre>
 </div>
 </div>
 </section>

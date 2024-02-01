@@ -29,7 +29,7 @@ url_meta_data = function(source = "download_urls.txt"){
   } else {
     u = basename(source)
   }
-  data.frame(Country = substr(u, 1,2), 
+  data.frame(Country = as.factor(substr(u, 1,2)), 
              Pollutant = factor(readr::parse_number(u), 
                                 levels = c(6001, 5, 8, 7),
                                 labels = c("PM2.5", "PM10", "NO2", "O3")),
@@ -107,15 +107,15 @@ read_pollutant_dt = function(files, pollutant = "NO2", countries = NULL, dir = "
                           ! File %in% enc_list,
                           file.exists(file.path("download", File)))
   if (nrow(files_p) > 0){
-  data = lapply(file.path(dir, files_p$File), data.table::fread, sep = ",", select=cols)
-  data = data.table::rbindlist(data) |> dtplyr::lazy_dt()
-  data = dplyr::mutate(data, 
-                DatetimeBegin = fasttime::fastPOSIXct(DatetimeBegin), 
-                AirQualityStationEoICode = as.factor(AirQualityStationEoICode)) |> 
-    dplyr::filter(!is.na(Concentration))
+    data = lapply(file.path(dir, files_p$File), data.table::fread, sep = ",", select=cols)
+    data = data.table::rbindlist(data) |> dtplyr::lazy_dt()
+    data = dplyr::mutate(data, 
+                         DatetimeBegin = fasttime::fastPOSIXct(DatetimeBegin), 
+                         AirQualityStationEoICode = as.factor(AirQualityStationEoICode)) |> 
+      dplyr::filter(!is.na(Concentration))
   } else {
     data = NULL
-    message("No files for ", pollutant, " in ", countries)
+    message(countries, "- no files for ", pollutant)
   }
   return(data)
 }
@@ -128,7 +128,6 @@ filter_quality = function(x, keep_validity = 1, keep_verification = c(1,2)){
       dplyr::select(-Validity, -Verification)
   }
 }
-
 
 filter_stations = function(x, 
                            type = c("background","traffic"), 
@@ -143,13 +142,14 @@ pivot_poll = function(x){
                      values_fn = max)
 }
 
-add_meta = function(pollutant, meta_data = station_meta){
+add_meta = function(pollutant){
+  meta_data = arrow::read_parquet("AQ_stations/EEA_stations_meta.parquet")
   by = "AirQualityStationEoICode"
   dplyr::left_join(pollutant, meta_data, by = by)
 }
 
-join_pollutants = function(pollutants){
-  cat("Joining: -", names(pollutants)[1])
+join_pollutants = function(pollutants, country = NULL){
+  cat("\n", country, ": joining -", names(pollutants)[1])
   a = pollutants[[1]] |> pivot_poll()
   
   if (length(pollutants) > 1){
@@ -163,17 +163,12 @@ join_pollutants = function(pollutants){
   a = add_meta(a) |> filter_stations()
   a = dplyr::select(a, AirQualityStationEoICode, 
                     StationArea, StationType, Longitude, Latitude,
-                    Elevation, Population, CLC8,
+                    #Elevation, Population, CLC8,
                     DatetimeBegin, dplyr::everything()) 
   return(a)
 }  
 
-message_parallel = function(...){
-  system(sprintf('echo "%s "', paste0(..., collapse="")))
-}
-
 preprocess_AQ_by_country = function(country, dl_files = files, outdir = "."){
-  message_parallel(country)
   out = file.path(outdir, paste0(country, "_hourly_2015-2023_gaps.parquet"))
   if (!file.exists(out)){
     
@@ -183,7 +178,7 @@ preprocess_AQ_by_country = function(country, dl_files = files, outdir = "."){
       pm25 = read_pollutant_dt(dl_files, pollutant = "PM2.5", countries = country) |> filter_quality(),
       pm10 = read_pollutant_dt(dl_files, pollutant = "PM10", countries = country) |> filter_quality()
     ) |> purrr::discard(is.null)
-    poll_table = join_pollutants(pollutants)
+    poll_table = join_pollutants(pollutants, country)
     
     if ("dtplyr_step" %in% class(poll_table)) poll_table = data.table::as.data.table(poll_table)
     
@@ -199,16 +194,17 @@ preprocess_AQ_by_country = function(country, dl_files = files, outdir = "."){
 
 
 ## Gapfilling  =================================================================
-make_ecwmf_box = function(bounds, buffer, view=T){
-  xmn = bounds[1]-buffer; xmx = bounds[2]+buffer; ymn = bounds[3]-buffer; ymx = bounds[4]+buffer
-  box = c(ymx, xmn, ymn, xmx)
-  if (view){
-    bbox = sf::st_sfc(list(sf::st_point(c(xmn,ymn)), sf::st_point(c(xmx,ymx)) )) |> 
-      sf::st_bbox() |> sf::st_as_sfc() |> sf::st_as_sf() |> sf::st_set_crs(4326)
-    print(mapview::mapview(bbox, color="red", alpha.regions=0))
-  }
-  return(box)
-}
+
+# make_ecwmf_box = function(bounds, buffer, view=T){
+#   xmn = bounds[1]-buffer; xmx = bounds[2]+buffer; ymn = bounds[3]-buffer; ymx = bounds[4]+buffer
+#   box = c(ymx, xmn, ymn, xmx)
+#   if (view){
+#     bbox = sf::st_sfc(list(sf::st_point(c(xmn,ymn)), sf::st_point(c(xmx,ymx)) )) |> 
+#       sf::st_bbox() |> sf::st_as_sfc() |> sf::st_as_sf() |> sf::st_set_crs(4326)
+#     print(mapview::mapview(bbox, color="red", alpha.regions=0))
+#   }
+#   return(box)
+# }
 
 add_ymd = function(x){
   dplyr::mutate(x, year = lubridate::year(DatetimeBegin),
@@ -218,6 +214,7 @@ add_ymd = function(x){
 
 make_time_grid = function(x, step = 3600){
   stations = unique(x$AirQualityStationEoICode) |> droplevels()
+  
   time_min = min(x$DatetimeBegin) |> as.POSIXct() + step
   time_max = max(x$DatetimeBegin) |> as.POSIXct() + step
   time_steps = seq(time_min, time_max, by = step) 
@@ -230,22 +227,24 @@ extract_ts = function(at, x, varname = "ext_var", t_col = "DatetimeBegin"){
                   stars::st_extract(x, at, time_column = t_col) |> 
                     dplyr::pull(varname) |> 
                     units::drop_units()
-                  ) |> 
+  ) |> 
     setNames(c("AirQualityStationEoICode", "DatetimeBegin", varname))
   gc()
   return(ex)
 }
 
-fill_pm2.5_gaps = function(country, model, 
+fill_pm2.5_gaps = function(country, model, population_table,
                            gap_data = "AQ_data/02_hourly_SSR",
-                           out_dir = "AQ_data/03_hourly_gapfilled"){
+                           out_dir = "AQ_data/03_hourly_gapfilled",
+                           overwrite = F){
   
   out_file = file.path(out_dir, paste0(country, "_hourly_gapfilled.parquet"))
-  if (!file.exists(out_file)){
+  if (!file.exists(out_file) | overwrite){
     
     data = arrow::open_dataset(gap_data) |> 
       dplyr::filter(Countrycode == country) |> 
       dplyr::collect()
+    data = dplyr::left_join(data, population_table, by = join_by(AirQualityStationEoICode))
     
     pred = predict(model, data)
     ind = !is.na(data$PM10) & is.na(data$PM2.5)
@@ -261,26 +260,42 @@ fill_pm2.5_gaps = function(country, model,
 }
 
 # Temporal aggregation =========================================================
-
-check_temp_cov = function(x, p, step, collect = F){
+#'
+#'@param p Pollutant (O3, NO2, PM10, PM2.5)
+#'@param step one of 'hour', 'day', or 'month'
+#'@param by one of 'day', 'month', or 'year'
+check_temp_cov = function(x, p, step, by = "year", collect = F){
   stopifnot("step should be one of 'hour', 'day', or 'month'." = step %in% c("hour","month","day"))
+  stopifnot("by should be one of 'day', 'month', or 'year'." = by %in% c("year","month","day"))
   s = switch(step,
-             "hour" = 365*24,
-             "day" = 365,
+             "hour" = switch(by, year = 365*24, "month" = 30*24, "day" = 24),
+             "day" = switch(by, year = 365, "month" = 30),
              "month" = 12)
-  x = dplyr::select(x, AirQualityStationEoICode, year, v = dplyr::all_of(p)) |> 
+  temp_vars_group = switch(by,
+                           "year" = dplyr::vars(as.symbol("year")),
+                           "month" = dplyr::vars(as.symbol("year"), as.symbol("month")),
+                           "day" = dplyr::vars(as.symbol("year"), as.symbol("month"), as.symbol("doy")))
+  vrs_group = c(dplyr::vars(AirQualityStationEoICode), temp_vars_group)
+  
+  suppressWarnings({
+  x = dplyr::select(x, dplyr::everything(), v = p) |> 
     dplyr::filter(!is.na(v)) |> 
     dplyr::mutate(one = 1, AirQualityStationEoICode = as.character(AirQualityStationEoICode)) |> 
-    dplyr::group_by(AirQualityStationEoICode, year) |> 
+    dplyr::group_by_at(vrs_group, .add = T) |> 
     dplyr::summarise(cov = sum(one)/s, AirPollutant = p, .groups = "drop") 
+  })
   
-  if (collect) x = dplyr::collect(x)
-  return(as_arrow_table(x))
+  if (collect){
+    x = dplyr::collect(x)
+  } else {
+    x = arrow::as_arrow_table(x)
+  }
+  return(x)
 }
 
 filter_temp_cov = function(x, tc, p){
   polls = c("PM10","PM2.5","O3","NO2")
-  thresh = c("PM10" = 10000, "PM2.5"= 10000, "O3"= 500, "NO2"= 150)
+  thresh = c("PM10" = 10000, "PM2.5"= 10000, "O3"= 500, "NO2"= 350)
   
   tc = dplyr::filter(tc, AirPollutant == p) |> dplyr::select(1:2) 
   
@@ -300,91 +315,305 @@ find_poll = function(x){
   return(poll)
 }
 
-temp_agg_mean = function(x, step, collect = F){
-  stopifnot("step should be one of 'year','month', or 'day')" = step %in% c("year","month","day"))
-  temp_vars_sel = switch(step,
-                         "year" = c("year"),
-                         "month" = c("year","month"),
-                         "day" = c("year", "month", "doy"))
+# temp_agg_mean = function(x, step, collect = F){
+#   stopifnot("step should be one of 'year','month', or 'day')" = step %in% c("year","month","day"))
+#   temp_vars_sel = switch(step,
+#                          "year" = c("year"),
+#                          "month" = c("year","month"),
+#                          "day" = c("year", "month", "doy"))
+#   p = find_poll(x)
+#   vrs_sel = c(temp_vars_sel, "v" = p)
+#   
+#   temp_vars_group = switch(step,
+#                            "year" = dplyr::vars(as.symbol("year")),
+#                            "month" = dplyr::vars(as.symbol("year"), as.symbol("month")),
+#                            "day" = dplyr::vars(as.symbol("year"), as.symbol("month"), as.symbol("doy")))
+#   vrs_group = c(dplyr::vars(AirQualityStationEoICode), temp_vars_group)
+#   
+#   x = dplyr::select(x, AirQualityStationEoICode, vrs_sel) |> 
+#     dplyr::group_by_at(vrs_group, .add = T) |> 
+#     dplyr::summarise(v = mean(v, na.rm = T), .groups = "drop") |> 
+#     dplyr::rename(!!p := v) |> add_meta()
+#   if (collect) x = dplyr::collect(x)
+#   return(x)
+# }
+
+temp_agg_daily_mean = function(x, cov_threshold){
   p = find_poll(x)
-  vrs_sel = c(temp_vars_sel, "v" = p)
   
-  temp_vars_group = switch(step,
-                           "year" = dplyr::vars(as.symbol("year")),
-                           "month" = dplyr::vars(as.symbol("year"), as.symbol("month")),
-                           "day" = dplyr::vars(as.symbol("year"), as.symbol("month"), as.symbol("doy")))
-  vrs_group = c(dplyr::vars(AirQualityStationEoICode), temp_vars_group)
+  # temporal coverage
+  suppressMessages({
+    temp_cov_y = check_temp_cov(x, p, step = "hour", by = "year", collect = T) |> 
+      dplyr::filter(cov >= cov_threshold) |> dplyr::select(1:2) |> dplyr::mutate(y_cov = 1)
+    temp_cov_m = check_temp_cov(x, p, step = "hour", by = "month", collect = T) |> 
+      dplyr::filter(cov >= cov_threshold) |> dplyr::select(1:3) |> dplyr::mutate(m_cov = 1)
+    temp_cov_d = check_temp_cov(x, p, step = "hour", by = "day", collect = T) |> 
+      dplyr::filter(cov >= cov_threshold) |> dplyr::select(1:4) |> dplyr::mutate(d_cov = 1)
+    temp_cov = dplyr::full_join(temp_cov_y, temp_cov_m) |> dplyr::full_join(temp_cov_d)
+  })
   
-  x = dplyr::select(x, AirQualityStationEoICode, SSR, vrs_sel) |> 
-    dplyr::group_by_at(vrs_group, .add = T) |> 
-    dplyr::summarise(v = mean(v, na.rm = T),
-              SSR = mean(SSR, na.rm = T),
-              .groups = "drop") |> 
-    dplyr::rename(!!p := v) |> add_meta()
-  if (collect) x = dplyr::collect(x)
-  return(x)
+  # group by station and time
+  # aggregate daily and join with temporal coverage info
+  vrs_group = dplyr::vars(AirQualityStationEoICode, year, month, doy)
+  suppressWarnings({
+    agg_d = dplyr::select(x, dplyr::everything(), "v" = p) |> 
+      dplyr::group_by_at(vrs_group, .add = T) |> 
+      dplyr::summarise(v = mean(v, na.rm = T), .groups = "drop") |> 
+      dplyr::rename(!!p := v) |> add_meta() |> 
+      tidyr::drop_na() |> 
+      dplyr::left_join(temp_cov, by = dplyr::join_by(AirQualityStationEoICode, year, month, doy))
+  })
+  return(agg_d)
 }
 
-# 8hr running mean
-# https://www.ecfr.gov/current/title-40/chapter-I/subchapter-C/part-50/appendix-Appendix%20I%20to%20Part%2050
-temp_agg_perc = function(x, step, perc, collect = F){
-  stopifnot("step should be one of 'year','month', or 'day')" = step %in% c("year","month","day"))
-  temp_vars_sel = switch(step,
-                     "year" = c("year"),
-                     "month" = c("year","month"),
-                     "day" = c("year", "month", "doy"))
-  p = find_poll(x)
-  vrs_sel = c(temp_vars_sel, "v" = p)
-  
-  temp_vars_group = switch(step,
-                     "year" = dplyr::vars(as.symbol("year")),
-                     "month" = dplyr::vars(as.symbol("year"), as.symbol("month")),
-                     "day" = dplyr::vars(as.symbol("year"), as.symbol("month"), as.symbol("doy")))
-  vrs_group = c(dplyr::vars(AirQualityStationEoICode), temp_vars_group)
- 
-  x = dplyr::select(x, AirQualityStationEoICode, SSR, vrs_sel) |> 
-    dplyr::group_by_at(vrs_group) |> 
-    dplyr::summarise(v = quantile(v, perc, na.rm = T),
-              SSR = mean(SSR, na.rm = T),
-              .groups = "drop") |>  dplyr::rename(!!p := v) |> add_meta()
-  
-  if (collect) x = dplyr::collect(x)
-  return(x)
-}
+# temp_agg_perc = function(x, step, perc, collect = F){
+#   stopifnot("step should be one of 'year','month', or 'day')" = step %in% c("year","month","day"))
+#   
+#   #selection variables by time step and pollutant
+#   temp_vars_sel = switch(step,
+#                          "year" = c("year"),
+#                          "month" = c("year","month"),
+#                          "day" = c("year", "month", "doy"))
+#   p = find_poll(x)
+#   vrs_sel = c(temp_vars_sel, "v" = p)
+#   
+#   # grouping variables by time step 
+#   temp_vars_group = switch(step,
+#                            "year" = dplyr::vars(as.symbol("year")),
+#                            "month" = dplyr::vars(as.symbol("year"), as.symbol("month")),
+#                            "day" = dplyr::vars(as.symbol("year"), as.symbol("month"), as.symbol("doy")))
+#   vrs_group = c(dplyr::vars(AirQualityStationEoICode), temp_vars_group)
+#   
+#   x = dplyr::select(x, dplyr::all_of("AirQualityStationEoICode"), vrs_sel)
+#   x = dplyr::group_by_at(x, vrs_group) |> 
+#     dplyr::summarise(v = quantile(v, perc, na.rm = T), .groups = "drop")
+#   x = dplyr::rename(x, !!p := v) |> add_meta()
+#   
+#   if (collect) x = dplyr::collect(x)
+#   return(x)
+# }
 
-process_temp_agg = function(aq, p, step, perc = NULL, overwrite = T, ...){
-  stopifnot("step should be one of 'year','month', or 'day')" = step %in% c("year","month","day"))
-  dir = switch(step, "year" = "AQ_data/06_annual",
-               "month" = "AQ_data/05_monthly",
-               "day" = "AQ_data/04_daily")
-  if (!dir.exists(dir)) dir.create(dir)
-  ttag = (basename(dir) |> strsplit("_"))[[1]][[2]]
-  aggtag = ifelse(is.null(perc), "mean", "perc")
+# process_temp_agg = function(aq, p, step, perc = NULL, overwrite = T, ...){
+#   stopifnot("step should be one of 'year','month', or 'day'" = step %in% c("year","month","day"))
+#   dir = switch(step, 
+#                "year" = "AQ_data/06_annual",
+#                "month" = "AQ_data/05_monthly",
+#                "day" = "AQ_data/04_daily")
+#   
+#   if (!dir.exists(dir)) dir.create(dir)
+#   ttag = (basename(dir) |> strsplit("_"))[[1]][[2]]
+#   aggtag = ifelse(is.null(perc), "mean", "perc")
+#   
+#   out = if (step == "day"){
+#     dir = file.path(dir, paste0(p, "_", aggtag))
+#     dir
+#   } else {
+#     file.path(dir, paste0(p, "_", ttag, "_", aggtag, ".parquet"))
+#   }
+#   fex = all(file.exists(out))
+#   
+#   if (!fex | (fex & overwrite)) {
+#     aq = filter_temp_cov(aq, stations_covered, p)
+#     
+#     # apply mean or percentile
+#     aq = if (is.null(perc)){
+#       temp_agg_mean(aq, step, ...)
+#     } else {
+#       temp_agg_perc(aq, step, perc, ...)
+#     }
+#     # write
+#     if (step == "day"){
+#       arrow::write_dataset(aq, dir, partitioning = "year", 
+#                            basename_template = paste0(p, "_", ttag, "_", aggtag, "_{i}.parquet"))
+#     } else {
+#       arrow::write_parquet(aq, out)
+#     }
+#     gc()
+#   }
+# }
+
+
+process_temp_agg = function(path, p, perc = NULL, cov_threshold = 0.75){
+  stopifnot('Pollutant (p) should be one of  PM10, PM2.5, O3, or NO2.' = p %in% c("PM10","PM2.5","O3","NO2"))
+  tictoc::tic()
+  cntry = substr(basename(path), 1,2)
+  metric = ifelse(is.null(perc), "mean", "perc")
+  file_d = paste0("AQ_data/04_daily/", p, "_", metric, "/", cntry, "_", p, "_daily_", metric, ".parquet")
   
-  out = if (step == "day"){
-    dir = file.path(dir, paste0(p, "_", aggtag))
-    dir
+  #  check if daily mean has been processed already
+  if (file.exists(file_d)){
+    agg_d = arrow::read_parquet(file_d)
   } else {
-    file.path(dir, paste0(p, "_", ttag, "_", aggtag, ".parquet"))
+    x = arrow::read_parquet(path, col_select = c(1:6, p)) |> add_ymd()
+    
+    # daily aggregate
+    agg_d = temp_agg_daily_mean(x, cov_threshold = cov_threshold) |>  
+      dplyr::select(dplyr::everything(), "v" = p)
   }
-  fex = all(file.exists(out))
-  if (!fex | (fex & overwrite)) {
-    aq = filter_temp_cov(aq, stations_covered, p)
-    aq = if (is.null(perc)){
-      temp_agg_mean(aq, step, ...)
+  
+  # monthly / annual mean / percentile of daily aggregates
+  if (nrow(agg_d) > 0){
+    if (is.null(perc)){
+      agg_m = dplyr::group_by(agg_d, AirQualityStationEoICode, year, month, y_cov, m_cov) |> 
+        dplyr::summarise(v = mean(v, na.rm = T), .groups = "drop")
+      
+      agg_y = dplyr::group_by(agg_d, AirQualityStationEoICode, year, y_cov) |> 
+        dplyr::summarise(v = mean(v, na.rm = T), .groups = "drop")
+      
     } else {
-      temp_agg_perc(aq, step, perc, ...)
+      agg_m = dplyr::group_by(agg_d, AirQualityStationEoICode, year, month, y_cov, m_cov) |> 
+        dplyr::summarise(v = quantile(v, perc, na.rm = T), .groups = "drop")
+      
+      agg_y = dplyr::group_by(agg_d, AirQualityStationEoICode, year, y_cov) |> 
+        dplyr::summarise(v = quantile(v, perc, na.rm = T), .groups = "drop")
     }
-    if (step == "day"){
-      arrow::write_dataset(aq, dir, partitioning = "year", 
-                           basename_template = paste0(p, "_", ttag, "_", aggtag, "_{i}.parquet"))
-    } else {
-      arrow::write_parquet(aq, out)
-    }
-    gc()
-  }
+    
+    pth = paste0("AQ_data/", c("04_daily","05_monthly", "06_annual"), "/", p, "_", metric, "/",
+                 cntry, "_", p, "_", c("daily", "monthly", "annual"), "_", metric, ".parquet")
+    write_pq_if(agg_d, pth[1])
+    write_pq_if(agg_m, pth[2])
+    write_pq_if(agg_y, pth[3])
+  } 
+  end = tictoc::toc()
+  return(list(Country = cntry, elapsed = as.numeric(round(end$toc - end$tic))))
 }
 
+# show_timings = function(t, n.rows = 3){
+#   tt = do.call(rbind, t) |> as.data.frame()
+#   tindex = seq(0, nrow(tt), length.out = n.rows+1) |> floor()
+#   tlist = list()
+#   for (i in 1:n.rows){
+#     #print(append(tlist, tt[(tindex[i]+1):tindex[i+1],]))
+#     tlist[[i]] = tt[(tindex[i]+1):tindex[i+1],] |> list()
+#   }
+#   knitr::kable(tlist, row.names = F)
+# }
+
+# 8h rolling mean --------------------------------------------------------------
+# https://www.ecfr.gov/current/title-40/chapter-I/subchapter-C/part-50/appendix-Appendix%20I%20to%20Part%2050
+
+# expand an hourly temporal grid from earliest to latest timestemp
+station_time_bounds = function(x){
+  dplyr::group_by(x, AirQualityStationEoICode) |>
+    dplyr::summarise(time_min = min(DatetimeBegin),
+                     time_max = max(DatetimeBegin))
+}
+
+station_time_grid = function(s, st_bounds){
+  time_steps = seq(st_bounds$time_min[s], st_bounds$time_max[s], by = "hours") 
+  expand.grid(AirQualityStationEoICode = st_bounds$AirQualityStationEoICode[s],
+              DatetimeBegin = time_steps) |> 
+    data.table::as.data.table()
+}
+
+# handle fill values for the start of the time series
+get_left_fill = function(x){
+  first6 = x[1:6]
+  first7 = x[1:7]
+  n_na = sum(is.na(first7))
+  if (sum(is.na(first7)) == 0){
+    fill = c(rep(NA, 5), mean(first6, na.rm = T),  mean(first7, na.rm = T))
+  } else if (sum(is.na(first7)) == 1){
+    fill = c(rep(NA, 6), mean(first7, na.rm = T))
+  } else if (sum(is.na(first7)) > 1){
+    fill = c(rep(NA, 7))
+  }
+  return(fill)
+}
+
+# slow but thorough method
+roll_8h_mean = function(x){
+  fill_left = get_left_fill(x)
+  fill_left_valid = cumsum(!is.na(fill_left)) + 5
+  n_valid = zoo::rollapply(x, 8, FUN = function(x) sum(!is.na(x)), 
+                           align = "right", fill = fill_left_valid)
+  
+  m8h = zoo::rollapply(x, 8, mean, na.rm=T, align = "right", fill = fill_left)
+  m8h[n_valid < 6] = NA
+  m8h
+}
+
+# faster, but without improved NA filling at start of time series
+roll_8h_mean_dt = function(x){
+  n_valid = data.table::frollapply(x, 8, FUN = function(x) sum(!is.na(x)), 
+                                   align = "right")
+  m8h = data.table::frollmean(x, 8, na.rm=T, hasNA = T, align = "right")
+  m8h[n_valid < 6] = NA
+  m8h
+}
+
+write_pq_if = function(x, path, check.dir = T){
+  if (check.dir & ! dir.exists(dirname(path))) dir.create(dirname(path), recursive = T)
+  if (!file.exists(path)) arrow::write_parquet(x, path)
+}
+
+temp_agg_daily_max8hm = function(i, bounds, x, cov_threshold){
+  
+  ts_grid = station_time_grid(i, bounds)
+  by = dplyr::join_by(AirQualityStationEoICode, DatetimeBegin)
+  ts_extended = dplyr::left_join(ts_grid, x, by = by, copy=T) |> 
+    data.table::as.data.table()
+  
+  rm8h = dplyr::mutate(ts_extended, O3 = roll_8h_mean_dt(O3)) |> add_ymd() |> 
+    dplyr::select(AirQualityStationEoICode, DatetimeBegin, year, month, doy, O3)
+  suppressMessages({
+    temp_cov_y = check_temp_cov(rm8h, p = "O3", step = "hour", by = "year", collect = T) |> 
+      dplyr::filter(cov >= cov_threshold) |> dplyr::select(1:2) |> dplyr::mutate(y_cov = 1)
+    temp_cov_m = check_temp_cov(rm8h, p = "O3", step = "hour", by = "month", collect = T) |> 
+      dplyr::filter(cov >= cov_threshold) |> dplyr::select(1:3) |> dplyr::mutate(m_cov = 1)
+    temp_cov_d = check_temp_cov(rm8h, p = "O3", step = "hour", by = "day", collect = T) |> 
+      dplyr::filter(cov >= cov_threshold) |> dplyr::select(1:4) |> dplyr::mutate(d_cov = 1)
+    temp_cov = dplyr::full_join(temp_cov_y, temp_cov_m) |> dplyr::full_join(temp_cov_d)
+  })
+  
+  suppressWarnings({
+    rm8h_d = dplyr::group_by(rm8h, AirQualityStationEoICode, year, month, doy) |> 
+      dplyr::summarise(O3 = max(O3, na.rm = T), .groups = "drop") |> 
+      dplyr::mutate(O3 = dplyr::na_if(O3, -Inf) ) |> 
+      tidyr::drop_na() |> 
+      dplyr::left_join(temp_cov, by = dplyr::join_by(AirQualityStationEoICode, year, month, doy))
+  })
+  return(rm8h_d)
+}
+
+process_O3_temp_agg_8hm = function(path, perc, cov_threshold = 0.75){
+  start = tictoc::tic()
+  cntry = substr(basename(path), 1,2)
+  outpaths = paste0("AQ_data/", 
+                    c("04_daily","05_monthly", "06_annual"), "/",
+                    c("O3_max8h_mean","O3_max8h_perc", "O3_max8h_perc"), "/", cntry, "_O3_", 
+                    c("daily_max8h_mean", "monthly_max8h_perc", "annual_max8h_perc"), ".parquet")
+  
+  #  check if daily max 8h mean has been processed already
+  if (file.exists(outpaths[1])){
+    rm8h_d = arrow::read_parquet(outpaths[1])
+  } else {
+    # get temporal min/max per station
+    x = arrow::read_parquet(path)
+    bounds = station_time_bounds(x)
+    
+    if (nrow(bounds) > 0){
+      # daily max of 8h mean
+      rm8h_d = purrr::map_dfr(1:nrow(bounds), temp_agg_daily_max8hm, bounds = bounds, 
+                              x = x, cov_threshold = cov_threshold)
+    } else {
+      rm8h_d = data.frame()
+    }
+    if (nrow(rm8h_d) > 0){
+      # monthly / annual percentile of daily max of 8h mean
+      rm8h_m = dplyr::group_by(rm8h_d, AirQualityStationEoICode, year, month, y_cov, m_cov) |> 
+        dplyr::summarise(O3 = quantile(O3, perc, na.rm = T), .groups = "drop")
+      rm8h_y = dplyr::group_by(rm8h_d, AirQualityStationEoICode, year, y_cov) |> 
+        dplyr::summarise(O3 = quantile(O3, perc, na.rm = T), .groups = "drop")
+      
+      write_pq_if(rm8h_d, outpaths[1])
+      write_pq_if(rm8h_m, outpaths[2])
+      write_pq_if(rm8h_y, outpaths[3])
+    }
+  } 
+  end = tictoc::toc()
+  return(list(Country = cntry, elapsed = as.numeric(round(end$toc - end$tic))))
+}
 
 
 ## Climate data conversion  ====================================================
@@ -396,10 +625,6 @@ rh = function(t, d){
 
 # wind direction
 wdir <-function(u, v, units = F, round = F){
-  # if (!any(grepl("proxy", class(u)))){
-  #   u = units::drop_units(u)
-  #   v = units::drop_units(v)
-  # }
   wd = (270-atan2(u,v)*180/pi)%%360 
   if (round) wd = round(wd)
   if (units) units(wd) = "°"
@@ -408,10 +633,6 @@ wdir <-function(u, v, units = F, round = F){
 
 # wind speed
 wspeed <-function(u, v,  units = F){
-  # if (!any(grepl("proxy", class(u)))){
-  #   u = units::drop_units(u)
-  #   v = units::drop_units(v)
-  # }
   ws = sqrt(u^2 + v^2)
   if (units) units(ws) = "m/s"
   return(ws)
@@ -470,11 +691,9 @@ load_ETC_covs_annual = function(aq){
   
   clc_st = stars::st_as_stars(clc) |> setNames("CLC") |> 
     dplyr::mutate(CLC = factor(CLC, levels = 1:8, labels = c("HDR", "LDR", "IND","TRAF","UGR","AGR","NAT","OTH")))
-  #stars::st_dimensions(clc_st)$x$point = NULL; stars::st_dimensions(clc_st)$y$point = NULL
   stars::st_dimensions(clc_st) = stars::st_dimensions(cams)
   
-  dtm = stars::read_stars("supplementary/static/DTM_GEDI_1km.tif") |> setNames("Elevation")
-  #stars::st_dimensions(clc_st)$x$point = NULL; stars::st_dimensions(clc_st)$y$point = NULL
+  dtm = stars::read_stars("supplementary/static/COP-DEM/COP_DEM_Europe_1km_epsg3035.tif") |> setNames("Elevation")
   stars::st_dimensions(dtm) = stars::st_dimensions(cams)
   
   l = switch(
@@ -510,9 +729,62 @@ linear_aq_model = function(aq, covariates){
   poll = pn[which(pn %in% names(aq))]
   
   aq_ext = stars::st_extract(covariates, aq)
-  aq_join = sf::st_join(dplyr::select(aq, 1:{{poll}}), aq_ext) 
-  frm = as.formula(paste(poll, "~", paste(names(aq_cov), collapse = "+")))
+  aq_join = sf::st_join(dplyr::select(aq, 1:{{poll}}, CLC), aq_ext, suffix = c("","1km"))    # use 100m CLC label, not 1km covariate CLC
+  
+  target = ifelse(poll %in% c("PM2.5", "PM10"), paste0("log(", poll, ")"), poll) # log transform for PM
+  
+  frm = as.formula(paste(target, "~", paste(names(aq_cov), collapse = "+")))
   l = lm(frm, aq_join)
   attr(l, "formula") = frm
+  attr(l, "log_transformed") = ifelse(poll %in% c("PM2.5", "PM10"), T, F)       # log transform for PM
   return(l)
+}
+
+merge_stars_list = function(lst){
+  do.call(rbind, lapply(lst, as.data.frame)) |> 
+    stars::st_as_stars()
+}
+
+krige_aq_residuals = function(aq, covariates, lm, n.max = Inf, n.cores = 1, show.vario = F, verbose = T){
+  max.cores = parallel::detectCores()
+  if(n.cores > max.cores) stop("Maximimum number of cores is ", max.cores)
+  
+  aq = cbind(aq[-attr(lm$model, "na.action"),], lm$model[,2:ncol(lm$model)])
+  aq$res = lm$residuals
+  
+  # variogram
+  vario = automap::autofitVariogram(res~1, aq)
+  if (show.vario) print(vario); print(plot(vario))
+  vr_m = vario$var_model
+  
+  if (n.cores == 1){ 
+    return(gstat::krige(res~1, aq, covariates, vr_m))
+  } else {
+    if (verbose) message("Kriging residuals in parallel using ", n.cores, " cores.")
+    
+    # set up cluster and data
+    message("1/3: Peparing cluster.")
+    clus = c(rep("localhost", n.cores))
+    cl = parallel::makeCluster(clus, type = "SOCK")
+    parallel::clusterEvalQ(cl, library(gstat))
+    e = new.env()
+    e$aq = aq; e$vr_m = vr_m; e$n.max = n.max
+    parallel::clusterExport(cl, list("aq", "vr_m", "n.max"), envir = e)
+    
+    # split prediction locations:
+    if (verbose) message("2/3: Splitting new data.")
+    n_rows = dim(covariates)[2]
+    splt = rep(1:n.cores, each = ceiling(n_rows/n.cores), length.out = n_rows)
+    newdlst = lapply(as.list(1:n.cores), function(w) covariates[,,which(splt == w)])
+    
+    # run
+    if (verbose) message("3/3: Kriging interpolation.")
+    tictoc::tic()
+    krige_lst = parLapply(cl, newdlst, function(lst) gstat::krige(res~1, aq, lst, vr_m, nmax = n.max))
+    parallel::stopCluster(cl)
+    t = tictoc::toc() 
+    if (verbose) message("Completed.  ", t$callback_msg)
+    gc(verbose = F)
+    merge_stars_list(krige_lst)
+  }
 }

@@ -14,7 +14,7 @@ dl_file = "download_urls_all_countries.txt"
 #generate_download_urls(countries, pollutants, year_start = 2015, year_end = 2023, file = dl_file)
 #check_station_urls(dl_file)
 files = download_station_data(dl_file) # 2 errors in 87342 files
-
+table(files$Country, files$Pollutant)
 
 # read, filter, join pollutants for 2015-2023
 measurement_counts = mclapply(countries, preprocess_AQ_by_country, 
@@ -22,3 +22,6 @@ measurement_counts = mclapply(countries, preprocess_AQ_by_country,
                               outdir = "AQ_data/01_hourly_gaps", 
                               mc.cores = 4)
 
+
+# any countries not processed?
+# countries[!countries %in% substr(list.files("AQ_data/01_hourly_gaps"),1,2)]
