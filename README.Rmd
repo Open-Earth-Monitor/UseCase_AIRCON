@@ -34,9 +34,9 @@ predictors:
 -   [x] PM10
     -   [x] mean
     -   [x] 90.4 percentile of daily mean
--   [ ] O3
+-   [x] O3
     -   [x] mean
-    -   [ ] 93.2 percentile of max. daily 8h rolling mean
+    -   [x] 93.2 percentile of max. daily 8h rolling mean
 
 ## Supplementary data
 
@@ -47,9 +47,6 @@ predictors:
 -   [x] add CLC
     -   [x] reclassify to 8 classes (Horalek 2019, section 3.4)
 -   [x] add population density
--   [ ] add road type information
-    - [x] buffer and rasterize GRIP vector data for road classes 1-3
-    - [x] distance to nearest road (by type)
 
 ### Measurement-level (hourly)
 
@@ -60,44 +57,51 @@ predictors:
     -   [forecasts](https://ads.atmosphere.copernicus.eu/cdsapp#!/dataset/cams-europe-air-quality-forecasts?tab=overview) for 2023 (3-year rolling archive)
     -   download
         -   [x] 2015-2022
-        -   [ ] 2023
--   ECWMF data (hourly):
+        -   [x] 2023
+-   [ECWMF ERA5 Land data (hourly)](https://cds.climate.copernicus.eu/cdsapp#!/dataset/reanalysis-era5-land?tab=overview):
     -   wind speed (from u and v)
     -   surface net solar radiation
     -   temperature
     -   relative humidity (from temp. and dew point temp.)
     -   [x] download
     -   [x] calculate wind speed/direction & humidity
-    -   temporal aggregates
-        -   [x] annual
-        -   [x] monthly
-        -   [x] daily    
+    -   temporal aggregates (daily, monthly, annual)
+          - [x] mean
+          - [x] percentiles
         
--   Sentinel-5P TROPOMI
-    -   temporal aggregates
-        -   [ ] annual
-        -   [ ] monthly
-        -   [ ] daily
+-   Sentinel-5P TROPOMI (daily)
+      -   [ ] annual
+      -   [ ] monthly
+      -   [ ] daily
 
 ## Interpolation
 
 - [x] function to read aq data
 - [x] function to read and warp covariates to a common grid
-- [ ] function wrapping lm
-- [ ] function for residual kriging in parallel
+- [x] function wrapping lm
+- [x] function for residual kriging in parallel
 
 create 3 separate map layers based on...
 
   - rural background stations
   - urban/suburban background stations
   - urban/suburban traffic station
-- [ ] run interpolation test for one annual dataset
+  
+- [ ] run interpolation test for one annual datasets (2015-2023)
 
 
 ## Merging
 
 - [x] rasterize GRIP road data (area impacted by traffic)
+    - [x] buffer and rasterize GRIP vector data for road classes 1-3
+    - [x] distance to nearest road (by type)
 - [ ] function to merge the 3 map layers
+
+## Potential Improvements to the Current Method
+
+- interpolation using
+  - [ ] standard Random Forest
+  - [ ] Random Forest with awareness for spatial correlation ([RF-GLS](https://github.com/ArkajyotiSaha/RandomForestsGLS))
 
 # Codeflow
 

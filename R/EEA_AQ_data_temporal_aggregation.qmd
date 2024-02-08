@@ -39,7 +39,8 @@ pollutants = c("PM10", "PM2.5", "NO2")
 for (p in pollutants){
   message(p)
   tic()
-  m = pbmclapply(gapfilled, process_temp_agg, p, cov_threshold = 0.75, mc.cores = 8) 
+  m = pbmclapply(gapfilled, process_temp_agg, p, cov_threshold = 0.75, 
+                 overwrite = T, mc.cores = 8) 
   toc()
 }
 ```
@@ -56,7 +57,7 @@ Beside the mean, PM10 is aggregated using the 90.41th percentile (formerly 36th 
 ```{r pm10}
 tic()
 pm = pbmclapply(gapfilled, process_temp_agg, "PM10", perc = 0.9041, 
-           cov_threshold = 0.75, mc.cores = 8)
+           cov_threshold = 0.75, overwrite = T, mc.cores = 8)
 toc()
 ```
 
