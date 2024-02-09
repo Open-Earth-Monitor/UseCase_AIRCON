@@ -2,91 +2,138 @@
 title: "AQ Gapfilling"
 author: "Johannes Heisig"
 date: "`r Sys.Date()`"
-format: html
-editor: visual
+format: gfm
+knitr:
+  opts_knit:
+    root.dir: "/mnt/cloud/wwu1/ec_bronze/_nogroup/ae78a1ca-a0e8-4e4e-8992-69c34947db65/UseCase_AIRCON"
 ---
 
 ```{r}
-suppressPackageStartupMessages({
+#| output: false
 library(dplyr)
-library(tidyr)
-library(gstat)
-library(stars)
+library(tictoc)
 
-})
 source("R/functions.R")
 ```
 
+## Read AQ Data  
 
-## Read AQ-Data and Add Covariates
+Daily, monthly, or annual aggregates of AQ measurement data are imported according using `load_aq()`. Required inputs are the `pollutant`, the aggregation statistic ('mean' or 'perc') and a temporal selection. Specifying only the year (`y`) returns annual data. Additionally, specifying **either** the month (`m`) **or** the day of the year (`d`) returns monthly or daily data, respectively.
 
-Daily, monthly, or annual AQ data is imported according to the specified temporal chunk.
-
-Covariates are then loaded based on the temporal extent of AQ data. Thereby each layer is warped to match the spatial grid or the 1 km Corine Lanc Cover (CLC) dataset.
-
-ETC uses different combinations of covariates for each pollutant, which `load_ETC_covs()` accounts for.
-
-- PM10: log_cams, elevation, ws, rh, clc
-- PM2.5: log_cams, elevation, ws, clc
-- O3: cams, elevtion, ws, ssr 
-- NO2: cams, elevation, elevation 5km, ws, ssr, S5P, pop, clc, clc 5km
-
-```{r}
-y = 2019
-poll = "PM10"
+```{r read-aq, warning=FALSE}
+y = 2020
+m = 4
+pollutant = "PM10"
 stat = "perc"
 
-load_poll(poll, stat, y, m=6)           # monthly aq aggregates for June 2019
-load_poll(poll, stat, y, d=350)         # daily aq aggregates for day 350 in 2019
+aq = load_aq(pollutant, stat, y, m) 
+```
 
-aq = load_poll(poll, stat, y)           # annual aq aggrgates for 2019
+## Add Covariates
+
+Covariates are then loaded based using `load_covariates_EEA()`. The temporal extent is extracted from the AQ measurement data object. Thereby each covariate raster layer is warped to match the spatial grid of the 1 x 1 km Corine Land Cover (CLC) dataset. Warping is faster when setting `parallel=TRUE`.
+
+By default our data covers the CAMS grid, which ranges from -25° to 45° longitude and 30° to 72° latitude. We can limit the extent by supplying a bounding box in the CRS of the data (*ETRS89-extended / LAEA Europe (EPSG: 3035)*). For this example we limit the covariates to mainland Europe and exclude e.g. Azores and Canary Islands.
+
+Note: EEA uses different combinations of covariates for each pollutant, which the function accounts for.
+
+-   PM10: log_cams, elevation, ws, rh, clc
+-   PM2.5: log_cams, elevation, ws, clc
+-   O3: cams, elevtion, ws, ssr
+-   NO2: cams, elevation, elevation 5km, ws, ssr, S5P, pop, clc, clc 5km
+
+```{r load-cov}
+xmin = 2500000
+ymin = 1400000
+xmax = 7400000 
+ymax = 5500000 
+sp_ext = terra::ext(xmin, xmax, ymin, ymax)
 
 tic()
-aq_cov = load_ETC_covs_annual(aq)
+aq_cov = load_covariates_EEA(aq, sp_ext, parallel = T)
 toc()
 
+aq_cov
 ```
 
+## Linear Models per Station-Area/-Type Group
 
-## Linear Models for each Station-Area/-Type Group
+Next, we need to specify the desired combination of station area and type
 
-- rural background (RB)
-- urban background (UB)
-- urban traffic (UT)
+-   rural background (RB)
+-   urban background (UB)
+-   urban traffic (UT)
 
-```{r}
+For each group, linear models are (a) trained and (b) predicted and finally added to (c) kriging residuals. A post-processing procedure is applied to merge the three outputs to a single map. In this example we only use rural background stations as input.
 
-aq_at = filter_area_type(aq, area_type = "RB")              
+```{r linmod}
+station_area_type = "RB"
+aq = filter_area_type(aq, area_type = station_area_type)              
 
-lm_rb = linear_aq_model(aq_at, aq_cov)
-summary(lm_rb)
-
-# summary(filter_area_type(aq, area_type = "UB") |>  linear_aq_model(aq_cov))
-# summary(linear_aq_model(aq, aq_cov, area_type = "UT"))
-
-
-
+linmod = linear_aq_model(aq, aq_cov)
+summary(linmod)
 ```
 
-```{r}
-aq_at = cbind(aq_at[-attr(lm_rb$model, "na.action"),], lm_rb$model[,2:ncol(lm_rb$model)])
-aq_at$res = lm_rb$residuals
+## Predict Linear Model and Post-Process
 
-vario = automap::autofitVariogram(res~1, aq_at)
-print(vario)
-plot(vario)
-vr_m = vario$var_model
-lm_formula = attr(lm_rb, "formula")
+Before predicting the linear model we check for missing classes of CLC data in the training data. The model is not able to make predictions for land cover classes it has not been trained for. Covariates are thus masked accordingly. A reason for a CLC class to be missing can be that a `station_area_type` such as 'rural background' by design excludes e.g. traffic areas.
 
-tic()
-k = krige(lm_formula, locations = aq_at, newdata = aq_cov, model = vr_m)
-message("Kriging complete.")
-toc()
+After prediction, a back-transformation is applied to target variables which where log-transformed during model building.
 
+```{r predict}
+# check for missing land cover classes 
+aq_cov = mask_missing_CLC(aq_cov, linmod)
 
+# predict
+aq_cov$lm_pred = predict(linmod, newdata = aq_cov)
 
+# transform back
+if (attr(linmod, "log_transformed") == TRUE){
+  aq_cov["lm_pred"] = exp(aq_cov["lm_pred"])
+}
 ```
 
+## Residual Kriging
+
+The residuals of the linear model can now be interpolated using covariates. `krige_aq_residuals()` requires three objects:
+
+- measurements (to retrieve locations)
+- covariates (including a post-processed linear model prediction)
+- linear model (to retrieve residuals and the formula)
+
+The number of nearest neighbors to consider can be specified with `n.max`. Kriging can be parallelized with `n.cores` > 1.
+
+```{r krige}
+k = krige_aq_residuals(aq, aq_cov, linmod, n.max = 10, 
+                       show.vario = F, n.cores = 8)
+```
+
+## Result
+
+Model prediction and Kriging output are merged using `combine_results()`. To limit the linear model prediction to certain value range, pass minimum and maximum to `trim_range`.
+
+```{r plot, fig.height=7}
+result = combine_results(aq_cov, k, trim_range = c(0,100))
+
+plot_aq_interpolation(result)
+```
+
+The example shows interpolated PM10 during April 2020, the time of the first COVID-19-related lockdowns in Europe. Pollution was relatively low compared to e.g April 2019.
 
 
+```{r, include=FALSE, echo=FALSE}
+# |include: false
+# |echo: false
 
+
+# b = bench::mark(
+#   k1 = krige_aq_residuals(aq_at, aq_cov, linmod, n.max = 10, show.vario = T, n.cores = 8),
+#   k2 = krige_aq_residuals(aq_at, aq_cov, linmod, n.max = 25, show.vario = T, n.cores = 8),
+#   k3 = krige_aq_residuals(aq_at, aq_cov, linmod, n.max = 50, show.vario = T, n.cores = 8),
+#   k4 = krige_aq_residuals(aq_at, aq_cov, linmod, n.max = 100, show.vario = T, n.cores = 8),
+#   k5 = krige_aq_residuals(aq_at, aq_cov, linmod, n.max = 200, show.vario = T, n.cores = 8),
+#   k6 = krige_aq_residuals(aq_at, aq_cov, linmod, show.vario = T, n.cores = 8),
+#   check = F, iterations = 1, memory = T, time_unit = "m"
+# )
+# saveRDS(b, "benchmark_kriging.rds")
+```

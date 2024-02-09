@@ -1,21 +1,10 @@
 # Temporal Aggregates for EEA AQ Station Data
 Johannes Heisig
-2024-02-06
+2024-02-08
 
 ## Setup
 
-``` r
-library(pbmcapply) # for parallel processing
-```
-
     Loading required package: parallel
-
-``` r
-library(tictoc)    # for timing
-
-if (! basename(getwd()) == "UseCase_AIRCON") setwd("UseCase_AIRCON")
-source("R/functions.R") 
-```
 
 ## Overview
 
@@ -49,32 +38,23 @@ pollutants = c("PM10", "PM2.5", "NO2")
 for (p in pollutants){
   message(p)
   tic()
-  m = pbmclapply(gapfilled, process_temp_agg, p, cov_threshold = 0.75, 
-                 overwrite = T, mc.cores = 8) 
+  m = pbmclapply(gapfilled, process_temp_agg, p, cov_threshold = 0.75,
+                 overwrite = T, mc.cores = 8)
   toc()
 }
 ```
 
     PM10
 
-    Warning in mclapply(X, FUN, ..., mc.cores = mc.cores, mc.preschedule =
-    mc.preschedule, : all scheduled cores encountered errors in user code
-
-    19.581 sec elapsed
+    82.803 sec elapsed
 
     PM2.5
 
-    Warning in mclapply(X, FUN, ..., mc.cores = mc.cores, mc.preschedule =
-    mc.preschedule, : all scheduled cores encountered errors in user code
-
-    19.897 sec elapsed
+    81.114 sec elapsed
 
     NO2
 
-    Warning in mclapply(X, FUN, ..., mc.cores = mc.cores, mc.preschedule =
-    mc.preschedule, : all scheduled cores encountered errors in user code
-
-    20.625 sec elapsed
+    103.408 sec elapsed
 
 ## PM10: 90.41th percentile of daily means
 
@@ -83,18 +63,12 @@ Beside the mean, PM10 is aggregated using the 90.41th percentile
 
 ``` r
 tic()
-pm = pbmclapply(gapfilled, process_temp_agg, "PM10", perc = 0.9041, 
+pm = pbmclapply(gapfilled, process_temp_agg, "PM10", perc = 0.9041,
            cov_threshold = 0.75, overwrite = T, mc.cores = 8)
-```
-
-    Warning in mclapply(X, FUN, ..., mc.cores = mc.cores, mc.preschedule =
-    mc.preschedule, : all scheduled cores encountered errors in user code
-
-``` r
 toc()
 ```
 
-    22.49 sec elapsed
+    90.505 sec elapsed
 
 ## Ozone: 93.15th percentile of daily maxima of the 8 hour running mean
 
@@ -108,13 +82,14 @@ running mean within 24 hours. Monthly and annual aggregates represent
 the 93.15th percentile of the daily aggregates. A threshold is applied
 to flag aggregates which fulfill a certain coverage requirement.
 
-This more complex approach is implemented in `process_temp_agg_8hm()`
+This more complex approach is implemented in `process_temp_agg_8hm()`,
+which needs considerably longer to process.
 
 ``` r
 tic()
-o3 = pbmclapply(gapfilled, process_O3_temp_agg_8hm, perc = 0.9315, 
-           cov_threshold = 0.75, mc.cores = 8)
+o3 = pbmclapply(gapfilled, process_O3_temp_agg_8hm, perc = 0.9315,
+           cov_threshold = 0.75, overwrite = T, mc.cores = 8)
 toc()
 ```
 
-    6.377 sec elapsed
+    2245.34 sec elapsed
