@@ -1,0 +1,44 @@
+{
+  "description": "Image collection format for Sentinel 5P data from Copernicus Dataspace Ecosystem",
+  "tags": ["Sentinel", "Copernicus", "S5P"],
+  "pattern": ".+\\.nc",
+  "images": {
+    "pattern": ".*/S5P_(.+)_.+_\\d{8}T\\d{6}_\\d{8}T\\d{6}_\\d{5}_\\d{2}_\\d{6}_\\d{15}\\.nc"
+  },
+  "datetime": {
+    "pattern": ".+_(\\d{8}T\\d{6})_\\d{8}T\\d{6}_\\d{5}_\\d{2}_\\d{6}_\\d{15}\\.nc",
+    "format": "%Y%m%dT%H%M%S"
+  },
+  "bands": {
+    "SO2": {
+      "pattern": ".+_L\\d+_SO2_+_.+\\.nc"
+    },
+    "NO2": {
+      "pattern": ".+_L\\d+_NO2_+_.+\\.nc"
+    },
+    "O3": {
+      "pattern": ".+_L\\d+_O3_+_.+\\.nc"
+    },
+    "CO": {
+      "pattern": ".+_L\\d+_CO_+_.+\\.nc"
+    },
+    "CH4": {
+      "pattern": ".+_L\\d+_CH4_+_.+\\.nc"
+    },
+    "AER_AI": {
+      "pattern": ".+_L\\d+_AER_AI_+_.+\\.nc"
+    },
+    "CLOUD": {
+      "pattern": ".+_L\\d+_CLOUD_+_.+\\.nc"
+    },
+    "HCHO": {
+      "pattern": ".+_L\\d+_HCHO_+_.+\\.nc"
+    }
+  },
+  "processing_stream": {
+    "pattern": "S5P_(\\w+)_"
+  },
+  "processing_level": {
+    "pattern": ".+_(L\\d+)_"
+  }
+}
