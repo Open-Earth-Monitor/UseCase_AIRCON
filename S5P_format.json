@@ -1,44 +1,44 @@
 {
   "description": "Image collection format for Sentinel 5P data from Copernicus Dataspace Ecosystem",
   "tags": ["Sentinel", "Copernicus", "S5P"],
-  "pattern": ".+\.nc",
+  "pattern": ".+\\.nc",
   "images": {
-    "pattern": ".*/S5P_(.+)_.+_\d{8}T\d{6}_\d{8}T\d{6}_\d{5}_\d{2}_\d{6}_\d{8}T\d{6}\.nc"
+    "pattern": ".*/S5P_(.+)_.+_\\d{8}T\\d{6}_\\d{8}T\\d{6}_\\d{5}_\\d{2}_\\d{6}_\\d{8}T\\d{6}\\.nc"
   },
   "datetime": {
-    "pattern": ".+_(\d{8}T\d{6})_\d{8}T\d{6}_\d{5}_\d{2}_\d{6}_\d{8}T\d{6}\.nc",
+    "pattern": ".+_(\\d{8}T\\d{6})_\\d{8}T\\d{6}_\\d{5}_\\d{2}_\\d{6}_\\d{8}T\\d{6}\\.nc",
     "format": "%Y%m%dT%H%M%S"
   },
   "bands": {
     "SO2": {
-      "pattern": ".+_(L\d[AB]?)__?SO2_.*\.nc"
+      "pattern": ".+_(L\\d[AB]?)__?SO2_.*\\.nc"
     },
     "NO2": {
-      "pattern": ".+_(L\d[AB]?)__?NO2_.*\.nc"
+      "pattern": ".+_(L\\d[AB]?)__?NO2_.*\\.nc"
     },
     "O3": {
-      "pattern": ".+_(L\d[AB]?)__?O3_.*\.nc"
+      "pattern": ".+_(L\\d[AB]?)__?O3_.*\\.nc"
     },
     "CO": {
-      "pattern": ".+_(L\d[AB]?)__?CO_.*\.nc"
+      "pattern": ".+_(L\\d[AB]?)__?CO_.*\\.nc"
     },
     "CH4": {
-      "pattern": ".+_(L\d[AB]?)__?CH4_.*\.nc"
+      "pattern": ".+_(L\\d[AB]?)__?CH4_.*\\.nc"
     },
     "AER_AI": {
-      "pattern": ".+_(L\d[AB]?)__?AER_AI_.*\.nc"
+      "pattern": ".+_(L\\d[AB]?)__?AER_AI_.*\\.nc"
     },
     "CLOUD": {
-      "pattern": ".+_(L\d[AB]?)__?CLOUD_.*\.nc"
+      "pattern": ".+_(L\\d[AB]?)__?CLOUD_.*\\.nc"
     },
     "HCHO": {
-      "pattern": ".+_(L\d[AB]?)__?HCHO_.*\.nc"
+      "pattern": ".+_(L\\d[AB]?)__?HCHO_.*\\.nc"
     }
   },
   "processing_stream": {
-    "pattern": "S5P_(\w{4})_"
+    "pattern": "S5P_(\\w{4})_"
   },
   "processing_level": {
-    "pattern": ".+_(L\d[AB]?)_"
+    "pattern": ".+_(L\\d[AB]?)_"
   }
 }
