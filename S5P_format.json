@@ -3,7 +3,7 @@
   "tags": ["Sentinel", "Copernicus", "S5P"],
   "pattern": ".+\\.nc",
   "images": {
-    "pattern": ".*/S5P_(.+)_.+_\\d{8}T\\d{6}_\\d{8}T\\d{6}_\\d{5}_\\d{2}_\\d{6}_\\d{8}T\\d{6}\\.nc"
+    "pattern": "..*\\/?(S5P_\\w{4}_L\\d[AB]?).+_(\\d{8}T\\d{6}_\\d{8}T\\d{6}_\\d{5}_\\d{2}_\\d{6}_\\d{8}T\\d{6})\\.nc"
   },
   "datetime": {
     "pattern": ".+_(\\d{8}T\\d{6})_\\d{8}T\\d{6}_\\d{5}_\\d{2}_\\d{6}_\\d{8}T\\d{6}\\.nc",
@@ -11,28 +11,28 @@
   },
   "bands": {
     "SO2": {
-      "pattern": ".+_(L\\d[AB]?)__?SO2_.*\\.nc"
+      "pattern": ".+_L\\d[AB]?__?(SO2)_.*\\.nc"
     },
     "NO2": {
-      "pattern": ".+_(L\\d[AB]?)__?NO2_.*\\.nc"
+      "pattern": ".+_L\\d[AB]?__?(NO2)_.*\\.nc"
     },
     "O3": {
-      "pattern": ".+_(L\\d[AB]?)__?O3_.*\\.nc"
+      "pattern": ".+_L\\d[AB]?__?(O3)_.*\\.nc"
     },
     "CO": {
-      "pattern": ".+_(L\\d[AB]?)__?CO_.*\\.nc"
+      "pattern": ".+_L\\d[AB]?__?(CO)_.*\\.nc"
     },
     "CH4": {
-      "pattern": ".+_(L\\d[AB]?)__?CH4_.*\\.nc"
+      "pattern": ".+_L\\d[AB]?__?(CH4)_.*\\.nc"
     },
     "AER_AI": {
-      "pattern": ".+_(L\\d[AB]?)__?AER_AI_.*\\.nc"
+      "pattern": ".+_L\\d[AB]?__?(AER_AI)_.*\\.nc"
     },
     "CLOUD": {
-      "pattern": ".+_(L\\d[AB]?)__?CLOUD_.*\\.nc"
+      "pattern": ".+_L\\d[AB]?__?(CLOUD)_.*\\.nc"
     },
     "HCHO": {
-      "pattern": ".+_(L\\d[AB]?)__?HCHO_.*\\.nc"
+      "pattern": ".+_L\\d[AB]?__?(HCHO)_.*\\.nc"
     }
   },
   "processing_stream": {
