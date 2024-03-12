@@ -587,6 +587,80 @@ wspeed <-function(u, v,  units = F){
   return(ws)
 }
 
+## Sentinel 5P =================================================================
+
+stac_download_S5P = function(day_start, n_days = 10, product = "L2__NO2___", 
+                             outdir, overwrite = T){
+  query = rstac::stac_search(
+    q = stac_source,
+    collections = "sentinel-5p-l2-netcdf",           # MS PC
+    bbox = bbox,
+    datetime = paste0(as.character(day_start), "T00:00:00Z/",
+                      as.character(day_start + n_days), "T00:00:00Z"),
+    # datetime = paste0(as.character(day_start),"/", 
+    #                   as.character(day_start + n_days)),
+    limit = 1000) |> 
+    get_request() |> 
+    items_filter(properties$`s5p:product_type` == product) |> 
+    items_sign(sign_planetary_computer())
+  
+  message("Downloading ", length(query$features), " tiles...")
+  rstac::assets_download(query, output_dir = outdir, overwrite = overwrite)
+  
+}
+
+warp_S5P = function(x, target, overwrite = F, delete_src = F){
+  path_out = sub(".nc", "_warp.nc", x)
+  if (!file.exists(path_out) | overwrite){
+    subs = sf::gdal_subdatasets(x)
+    d = stars::read_stars(c(subs[[5]], subs[[6]])) |> 
+      units::drop_units() |> 
+      setNames(c("qa","no2")) |> 
+      dplyr::transmute(no2 = ifelse(qa < 0.5, NA, no2)) |> 
+      stars::st_warp(dest = target)
+    stars::write_mdim(d, path_out, layer = "no2")
+  }
+  if (delete_src) unlink(x)
+  return(path_out)
+}
+
+s5p_date = function(x){
+  bn = basename(x)
+  re = regexpr("\\d{8}", bn)
+  rm = regmatches(bn, re) |> 
+    as.Date(format="%Y%m%d")
+  if (length(rm) == 0){
+    re = regexpr("\\d{4}-\\d{2}-\\d{2}", bn)
+    rm = regmatches(bn, re) |> 
+      as.Date(format="%Y-%m-%d")
+  }
+  return(rm)
+}
+
+s5p_meta = function(x){
+  d = purrr::map_vec(x, s5p_date)
+  data.frame(date = d,
+             year = as.numeric(format(d, "%Y")),
+             month = as.numeric(format(d, "%m")),
+             product = substr(basename(unlist(x)), 1, 19),
+             file = unlist(x))
+}
+
+s5p_daily_mosaic = function(d, wdf, outdir){
+  day_files = dplyr::filter(wdf, date == d) 
+  out = file.path(outdir, paste0(day_files$product[1], d, ".tif"))
+  if (!file.exists(out)){
+    mos = stars::st_mosaic(day_files$file) |> 
+      stars::read_stars(proxy = T) |> 
+      setNames("no2")
+    stars::write_stars(mos, out, 
+                       options=c("co" = "COMPRESS=DEFLATE", 
+                                 "co" = "PREDICTOR=3",
+                                 "NUM_THREADS=ALL_CPUS"))
+  }
+  return(out)
+}
+
 ## Interpolation ===============================================================
 
 load_aq = function(poll, stat, y, m=0, d=0, sf = T, verbose = T){
@@ -629,11 +703,14 @@ get_filename = function(dir, var, y, perc = NULL,
              full.names = T)
 }
 
-read_n_warp = function(x, lyr, name, target, target_dims, parallel){
+read_n_warp = function(x, lyr, name, target, target_dims = NULL, 
+                       parallel=1, method="bilinear"){
   x = terra::rast(x, lyrs = lyr)
   terra::time(x) = NULL
+  if (class(target)=="character") target = terra::rast(target)
+  if (is.null(target_dims)) target_dims = stars::st_as_stars(target) |> stars::st_dimensions()
   x = terra::project(x, target, threads=parallel) |> 
-    terra::resample(target, method = "bilinear", threads=parallel) |> 
+    terra::resample(target, method = method, threads=parallel) |> 
     stars::st_as_stars() |> 
     setNames(name)
   stars::st_dimensions(x) = target_dims
@@ -690,6 +767,9 @@ load_covariates_EEA = function(x, spatial_ext = NULL, ...){
   attr(strs, "pollutant") <- poll
   attr(strs, "stat") <- stat
   attr(strs, "dtime") <- dtime
+  attr(strs, "y") <- y
+  attr(strs, "m") <- m
+  attr(strs, "d") <- d
   return(strs)
 }
 
@@ -706,16 +786,28 @@ filter_area_type = function(aq, area_type = "RB"){
   return(aq)
 }
 
+# spatial AND temporal cov
+filter_st_coverage = function(aq, covariates, cov_threshold = 0.75){
+  cov_column = ifelse(attr(aq, "d") > 0, 
+                      "d_cov", ifelse(attr(aq, "m") > 0, "m_cov", "y_cov"))
+  poll = find_poll(aq)
+  
+  aq = sf::st_filter(aq, sf::st_as_sfc(sf::st_bbox(covariates)))  |> 
+    dplyr::filter(!!as.symbol(poll) > 0)
+  aq = aq[aq[cov_column] |> sf::st_drop_geometry() > cov_threshold,]
+  return(aq)
+}
+
 linear_aq_model = function(aq, covariates){
   
   if (!all(any(class(aq)=="sf"), class(covariates)=="stars")) stop("Please supply an sf-object (aq) and the corresponding covariates as stars-object.")
   #if (! identical(sf::st_crs(aq), sf::st_crs(covariates))) stop("CRSs of aq and covariates do not match!")
   
-  pn = c("PM2.5", "PM10", "NO2", "O3")
-  poll = pn[which(pn %in% names(aq))]
-  
-  aq_ext = stars::st_extract(covariates, aq)
-  aq_join = sf::st_join(dplyr::select(aq, 1:{{poll}}), aq_ext, suffix = c("","1km")) |>    # use 100m CLC label, not 1km covariate CLC
+  poll = find_poll(aq)
+
+  aq_ext = stars::st_extract(covariates, aq) 
+  aq_join = sf::st_join(dplyr::select(aq, 1:{{poll}}), aq_ext) |> 
+    #tidyr::drop_na() |> 
     unique()
   
   target = ifelse(poll %in% c("PM2.5", "PM10"), paste0("log(", poll, ")"), poll) # log transform for PM
@@ -725,6 +817,12 @@ linear_aq_model = function(aq, covariates){
   attr(l, "formula") = frm
   attr(l, "log_transformed") = ifelse(poll %in% c("PM2.5", "PM10"), T, F)       # log transform for PM
   return(l)
+}
+
+lm_measures = function(l){
+  rmse = caret::RMSE(l$model[,1] |> as.vector(),l$fitted.values) |> round(3)
+  r2 = caret::R2(l$model[,1] |> as.vector(),l$fitted.values) |> round(3)
+  return(list(RMSE = rmse, R2 = r2))
 }
 
 mask_missing_CLC = function(covariates, lm){
@@ -747,13 +845,14 @@ merge_stars_list = function(lst){
     stars::st_as_stars()
 }
 
-krige_aq_residuals = function(aq, covariates, lm, n.max = Inf, n.cores = 1, 
-                              show.vario = F, verbose = T){
-  max.cores = parallel::detectCores()
-  if(n.cores > max.cores) stop("Maximimum number of cores is ", max.cores)
+krige_aq_residuals = function(aq, covariates, lm, n.max = Inf, cluster = NULL, 
+                              show.vario = F, verbose = F){
+  #max.cores = parallel::detectCores()
+  #if(n.cores > max.cores) stop("Maximimum number of cores is ", max.cores)
   
   area_type =  attr(aq, "area_type")
-  aq = cbind(aq[-attr(lm$model, "na.action"),], lm$model[,2:ncol(lm$model)])
+  if (!is.null(attr(lm$model, "na.action"))) aq = aq[-attr(lm$model, "na.action"),]
+  aq = cbind(aq, lm$model[,2:ncol(lm$model)])
   aq$res = lm$residuals
   
   # variogram
@@ -764,31 +863,28 @@ krige_aq_residuals = function(aq, covariates, lm, n.max = Inf, n.cores = 1,
   } 
   vr_m = vario$var_model
   
-  if (n.cores == 1){ 
+  n.cores = length(cluster)
+  if (is.null(cluster)){ 
     k = gstat::krige(res~1, aq, covariates, vr_m)
   } else {
     if (verbose) message("Kriging residuals in parallel using ", n.cores, " cores.")
     
     # set up cluster and data
-    message("1/3: Peparing cluster.")
-    clus = c(rep("localhost", n.cores))
-    cl = parallel::makeCluster(clus, type = "SOCK")
-    parallel::clusterEvalQ(cl, library(gstat))
     e = new.env()
     e$aq = aq; e$vr_m = vr_m; e$n.max = n.max
-    parallel::clusterExport(cl, list("aq", "vr_m", "n.max"), envir = e)
+    parallel::clusterExport(cluster, list("aq", "vr_m", "n.max"), envir = e)
     
     # split prediction locations:
-    if (verbose) message("2/3: Splitting new data.")
+    if (verbose) message("Splitting new data.")
     n_rows = dim(covariates)[2]
     splt = rep(1:n.cores, each = ceiling(n_rows/n.cores), length.out = n_rows)
     newdlst = lapply(as.list(1:n.cores), function(w) covariates[,,which(splt == w)])
     
     # run
-    if (verbose) message("3/3: Kriging interpolation.")
+    if (verbose) message("Kriging interpolation.")
     tictoc::tic()
-    krige_lst = parallel::parLapply(cl, newdlst, function(lst) gstat::krige(res~1, aq, lst, vr_m, nmax = n.max))
-    parallel::stopCluster(cl)
+    krige_lst = parallel::parLapply(cluster, newdlst, function(lst) gstat::krige(res~1, aq, lst, vr_m, nmax = n.max))
+
     t = tictoc::toc(quiet = T)
     if (verbose) message("Completed.  ", t$callback_msg)
     gc(verbose = F)
@@ -815,30 +911,66 @@ combine_results = function(covariates, kriging, trim_range = NULL){
   return(res)
 }
 
-plot_aq_interpolation = function(x, countries = T){
-  if (attr(x, "stat") == "perc"){
-    breaks = switch(attr(x, "pollutant"),
+plot_aq_interpolation = function(x, pollutant = NULL, stat=NULL, dtime=NULL, 
+                                 area_type=NULL, layer = "aq_interpolated", 
+                                 countries = T, ...){
+  if (is.null(pollutant)) pollutant = attr(x, "pollutant")
+  if (is.null(stat)) stat = attr(x, "stat")
+  if (is.null(dtime)) dtime = attr(x, "dtime")
+  if (is.null(area_type)) area_type = attr(x, "area_type")
+  
+  if (stat == "perc"){
+    breaks = switch(pollutant,
                     "PM10" = c(0, 20, 30, 40, 50, 75, 100),
                     "O3" = c(0, 90, 100, 110, 120, 140, 200))
   } else {
-    breaks = switch(attr(x, "pollutant"),
+    breaks = switch(pollutant,
                     "PM10" = c(0, 15, 20, 30, 40, 50, 100),
                     "PM2.5" = c(0, 5, 10, 15, 20, 25, 40),
                     "NO2" = c(0, 10, 20, 30, 40, 45, 100))
   }
   
-  max_val = x |> pull() |> max(na.rm = T)
+  max_val = x |> dplyr::pull() |> max(na.rm = T)
   if (max_val > max(breaks)) breaks[length(breaks)] = max_val
   
   cols = c("darkgreen", "forestgreen", "yellow2", "orange", "red", "darkred")
-  titl = paste(attr(result, "pollutant"), 
-               attr(result, "stat"), 
-               attr(result, "dtime"),
-               attr(result, "area_type"))
-  plot(x["aq_interpolated"], col=cols, breaks = breaks, 
-       main = titl, key.pos=1, reset=!countries)
+  titl = paste(pollutant, stat, dtime, area_type)
+  plot(x[layer], col=cols, breaks = breaks, 
+       main = titl, key.pos=1, reset=!countries, ...)
   
   if (countries) plot(giscoR::gisco_countries$geometry |> 
-                        sf::st_transform(sf::st_crs(aq_cov)), add=T)
+                        sf::st_transform(sf::st_crs(x)), add=T)
+}
+
+apply_aq_weights = function(x, ...){
+  m = all(is.na(x[1]), is.na(x[2]), is.na(x[3]))  # create mask only from predictions
+  c_rb = prod(1 - x[5], x[1], ...)                # weighted RB
+  c_ub = prod(x[5], 1 - x[4], x[2], ...)          # weighted UB
+  c_ut = prod(x[3], x[4], ...)                    # weighted UT
+  r = sum(c_rb, c_ub, c_ut, ...)                  # sum (excluding NAs if na.rm = T)
+  r[m==1] = NA                                    # mask
+  return(r)
+}
+
+merge_aq_maps = function(paths, weights, cluster = NULL){
+  # aq_interpolated = paths |> sort() |> stars::read_stars() |> 
+  #   setNames(c("RB","UB","UT")[1:length(paths)])
+  aq_interpolated = paths |> sort() |> stars::read_stars(along="bands") |> 
+    stars::st_set_dimensions("bands", c("RB","UB","UT")[1:length(paths)])
   
+  w = weights |> sf::st_crop(sf::st_bbox(aq_interpolated)) |> 
+    sf::st_normalize()
+  components = c(aq_interpolated, w, along="bands")
+  
+  if (all(grepl("O3", paths))){
+    # aq_merge = dplyr::transmute(
+    #   components, p = ((1 - w_urban)*RB) + (w_urban * UB))   # ozone: no urban traffic component
+    message("O3 is not yet supported.")
+    stop()
+    
+  } else {
+    aq_merge = st_apply(components, 1:2, apply_aq_weights, na.rm=T, 
+                        CLUSTER = cluster, PROGRESS = T) 
+  }
+  return(aq_merge)
 }

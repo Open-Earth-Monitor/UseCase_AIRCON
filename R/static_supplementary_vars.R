@@ -42,17 +42,30 @@ gdalwarp(clc_8class, "supplementary/static/CLC_reclass_8_1km.tif",
 pop_wgs = "supplementary/static/gpw_v4_population_density_rev11_2020_30_sec.tif"
 read_stars(pop_wgs)
 
-pop1k = gdalwarp(pop_wgs, "supplementary/static/pop_density_1km_epsg3035.tif", 
-                 t_srs = "EPSG:3035", te_srs = "EPSG:3035", r = "bilinear", #dryrun = T,
-                 te = clc_ext, tr = c(1000,1000),
-                 wo = c("NUM_THREADS=8"), wm = 500, config_options = c("GDAL_CACHEMAX"="500"),
-                 multi = T, co = c("COMPRESS=DEFLATE", "PREDICTOR=3"))
 
 pop_orig = gdalwarp(pop_wgs, "supplementary/static/pop_density_original_epsg3035.tif", 
                  t_srs = "EPSG:3035",  r = "bilinear", #dryrun = T,
                  te = clc_ext, te_srs = "EPSG:3035",
                  wo = c("NUM_THREADS=16"), wm = 500, config_options = c("GDAL_CACHEMAX"="500"),
                  multi = T, co = c("COMPRESS=DEFLATE", "PREDICTOR=3"))
+
+pop1k = gdalwarp(pop_wgs, "supplementary/static/pop_density_1km_epsg3035.tif", 
+                 t_srs = "EPSG:3035", te_srs = "EPSG:3035", r = "bilinear", #dryrun = T,
+                 te = clc_ext, tr = c(1000,1000),
+                 wo = c("NUM_THREADS=8"), wm = 500, config_options = c("GDAL_CACHEMAX"="500"),
+                 multi = T, co = c("COMPRESS=DEFLATE", "PREDICTOR=3"))
+
+# calculate urban character
+pop1k = rast("supplementary/static/pop_density_1km_epsg3035.tif")
+v = values(pop1k)
+hist(v)
+lim = quantile(v, c(0.999), na.rm=T) # 5458.101
+v[v>lim] = lim
+hist(v)
+pop1k[pop1k > lim] = lim             # limit to lim to have a better distribution of weights
+pop1k_scaled = pop1k / lim
+plot(pop1k_scaled)
+writeRaster(pop1k_scaled, "supplementary/static/pop_density_weights_perc99.9_1km_epsg3035.tif")
 
 # ==============================================================================
 # COP-DEM
