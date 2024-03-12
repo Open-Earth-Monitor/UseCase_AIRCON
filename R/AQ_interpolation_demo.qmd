@@ -21,8 +21,8 @@ source("R/functions.R")
 Daily, monthly, or annual aggregates of AQ measurement data are imported according using `load_aq()`. Required inputs are the `pollutant`, the aggregation statistic ('mean' or 'perc') and a temporal selection. Specifying only the year (`y`) returns annual data. Additionally, specifying **either** the month (`m`) **or** the day of the year (`d`) returns monthly or daily data, respectively.
 
 ```{r read-aq, warning=FALSE}
-y = 2020
-m = 4
+y = 2019
+m = 2
 pollutant = "PM10"
 stat = "perc"
 
@@ -67,7 +67,7 @@ Next, we need to specify the desired combination of station area and type
 For each group, linear models are (a) trained and (b) predicted and finally added to (c) kriging residuals. A post-processing procedure is applied to merge the three outputs to a single map. In this example we only use rural background stations as input.
 
 ```{r linmod}
-station_area_type = "RB"
+station_area_type = "UT"
 aq = filter_area_type(aq, area_type = station_area_type)              
 
 linmod = linear_aq_model(aq, aq_cov)
@@ -110,7 +110,7 @@ k = krige_aq_residuals(aq, aq_cov, linmod, n.max = 10,
 
 ## Result
 
-Model prediction and Kriging output are merged using `combine_results()`. To limit the linear model prediction to certain value range, pass minimum and maximum to `trim_range`.
+Model prediction and Kriging output are merged using `combine_results()`. To limit the linear model prediction to a certain value range, pass minimum and maximum to `trim_range`.
 
 ```{r plot, fig.height=7}
 result = combine_results(aq_cov, k, trim_range = c(0,100))
@@ -122,6 +122,10 @@ The example shows interpolated PM10 during April 2020, the time of the first COV
 
 
 ```{r, include=FALSE, echo=FALSE}
+out = paste0(c("aq_interpolated", pollutant, stat, y, m, station_area_type), collapse = "_")
+out = paste0(out, ".tif")
+stars::write_stars(result, layer = "aq_interpolated", file.path("tests", out))
+
 # |include: false
 # |echo: false
 
