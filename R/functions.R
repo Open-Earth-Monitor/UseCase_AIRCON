@@ -1,7 +1,11 @@
 ## Downloads   ==================================================================
 
 station_data_urls = function(country, pollutant, 
+<<<<<<< HEAD
                              dataset = c(1,2), 
+=======
+                             datasets = c(1,2), 
+>>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
                              urlfile = NULL){
   if (!is.null(urlfile) && file.exists(urlfile)){
     stop("URL file already exists. Please use a different urlfile name.")
@@ -144,6 +148,7 @@ pivot_poll = function(x){
 
 arrow_substr <- function(context, string) {
   stringr::str_sub(string, 4)
+<<<<<<< HEAD
 }
 
 arrow::register_scalar_function(
@@ -197,6 +202,114 @@ preprocess_station_data = function(dir = "download", out_dir = "01_hourly", stat
   x = purrr::map(countries, pivot_station_data, data = data, out_dir = out_dir)
 }
 
+arrow::register_scalar_function(
+  name = "arrow_substr",
+  fun = arrow_substr,  
+  in_type = arrow::utf8(),
+  out_type = arrow::utf8(),
+  auto_convert = TRUE
+)
+
+pivot_station_data = function(country, data, out_dir){
+  cat(country, "- ")
+  dd_split = data |> 
+    dplyr::filter(Countrycode == country) |> 
+    dplyr::group_by(Air.Quality.Station.EoI.Code) |> 
+    dplyr::collect() |> 
+    dplyr::group_split() |> 
+    purrr::map(pivot_poll) |>
+    dplyr::bind_rows() |> 
+    dplyr::select(Air.Quality.Station.EoI.Code, Countrycode, Start, PM10, PM2.5, O3, NO2) |>
+    dplyr::arrange(Air.Quality.Station.EoI.Code, Start) |> 
+    arrow::write_parquet(file.path(out_dir, paste0(country,"_hourly.parquet")))
+}
+
+preprocess_station_data = function(dir = "download", out_dir = "01_hourly", station_meta,
+                                   keep_validity = 1, keep_verification = c(1,2)){
+  stopifnot("Data directory does not exist." = dir.exists(dir))
+  if (is.character(station_meta)) station_meta = arrow::read_parquet(station_meta)
+  
+  station_meta = station_meta |>
+    dplyr::select(Sampling.Point.Id, Air.Quality.Station.EoI.Code, 
+                  Countrycode, Air.Pollutant)
+  
+  country_dirs = strsplit(list.dirs(dl_dir), "/") 
+  max_l = max(lengths(country_dirs))
+  countries = purrr::map(country_dirs, purrr::pluck(max_l)) |> 
+    purrr::discard(is.null) |> 
+    unique()
+  
+  data = arrow::open_dataset(dir) |> 
+    dplyr::filter(AggType == "hour") |> 
+    filter_quality(keep_validity = keep_validity, 
+                   keep_verification = keep_verification) |> 
+    dplyr::rename(Sampling.Point.Id = Samplingpoint) |> 
+    dplyr::mutate(Sampling.Point.Id = arrow_substr(Sampling.Point.Id)) |> 
+    dplyr::select(-c(End, Unit, Pollutant, AggType, ResultTime, 
+                     DataCapture, FkObservationLog)) |> 
+    dplyr::inner_join(station_meta, by = dplyr::join_by(Sampling.Point.Id)) |> 
+    dplyr::select(-Sampling.Point.Id)
+  
+  x = purrr::map(countries, pivot_station_data, data = data, out_dir = out_dir)
+  
+}
+
+
+
+add_meta = function(pollutant){
+  if (!any(c("Countrycode","StationType","StationArea",
+             "Longitude","Latitude") %in% names(pollutant))){
+    meta_data = arrow::read_parquet("AQ_stations/EEA_stations_meta.parquet")
+    by = "AirQualityStationEoICode"
+    pollutant = dplyr::left_join(pollutant, meta_data, by = by)
+  }
+  return(pollutant)
+}
+
+# join_pollutants = function(pollutants, country = NULL){
+#   cat("\n", country, ": joining -", names(pollutants)[1])
+#   a = pollutants[[1]] |> pivot_poll()
+#   
+#   if (length(pollutants) > 1){
+#     by = c("AirQualityStationEoICode", "DatetimeBegin")
+#     for (i in 2:length(pollutants)){
+#       cat(" -", names(pollutants)[i])
+#       b = pollutants[[i]] |> pivot_poll()
+#       a = dplyr::full_join(a, b, by = by)
+#     }
+#   }
+#   a = add_meta(a) |> filter_stations()
+#   a = dplyr::select(a, AirQualityStationEoICode, 
+#                     StationArea, StationType, Longitude, Latitude,
+#                     #Elevation, Population, CLC8,
+#                     DatetimeBegin, dplyr::everything()) 
+#   return(a)
+# }  
+# 
+# preprocess_AQ_by_country = function(country, dl_files = files, outdir = "."){
+#   out = file.path(outdir, paste0(country, "_hourly_2015-2023_gaps.parquet"))
+#   if (!file.exists(out)){
+#     
+#     pollutants = list(
+#       no2  = read_pollutant_dt(dl_files, pollutant = "NO2", countries = country) |> filter_quality(),
+#       o3   = read_pollutant_dt(dl_files, pollutant = "O3", countries = country) |> filter_quality(),
+#       pm25 = read_pollutant_dt(dl_files, pollutant = "PM2.5", countries = country) |> filter_quality(),
+#       pm10 = read_pollutant_dt(dl_files, pollutant = "PM10", countries = country) |> filter_quality()
+#     ) |> purrr::discard(is.null)
+#     poll_table = join_pollutants(pollutants, country)
+#     
+#     if ("dtplyr_step" %in% class(poll_table)) poll_table = data.table::as.data.table(poll_table)
+#     
+#     counts = table(poll_table$AirQualityStationEoICode |> droplevels()) |> as.data.frame() |> 
+#       setNames(c("AirQualityStationEoICode", "count"))
+#     
+#     arrow::write_parquet(poll_table, out)
+#     gc()
+#     return(counts)
+#   } else  message_parallel(paste(country, "completed."))
+# }
+# 
+>>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
 
 
 # add_meta = function(pollutant){
