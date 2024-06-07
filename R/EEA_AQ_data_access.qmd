@@ -11,91 +11,85 @@ knitr:
     root.dir: "/mnt/cloud/wwu1/ec_bronze/_nogroup/ae78a1ca-a0e8-4e4e-8992-69c34947db65/UseCase_AIRCON"
 ---
 
+In this notebook we show how to access, download, and pre-process European air quality data. The EEA recently switched to storing its measurements in `Parquet` file format, allowing better compression, faster downloads, and more efficient downstream analysis.
 
 ```{r}
-suppressPackageStartupMessages({
-  library(dplyr)
-  library(tidyr)
-  library(sf)
-  library(data.table)
-})
-
+# load functions for download and preprocessing
 source("R/functions.R")
 ```
 
+# Data
+
+EEA measurement station data are organized into single files for each combination of station, pollutant, and dataset. Pollutants are represented by numeric codes (e.g 7 = Ozone). A full list is available in the [EEA Air Quality Vocabulary](https://dd.eionet.europa.eu/vocabulary/aq/pollutant/view). There are three types of datasets according to the time of recording: 
+
+- [1] up-to-date, unverified data from 2023 until now (E2a)
+- [2] verified data from between 2013 and 2022 (E1a)
+- [3] historical Airbase data from between 2002 and 2012
 
 # Download
 
-Construct URLS like the [EEA discomap service](https://discomap.eea.europa.eu/map/fme/AirQualityExport.htm) that return links to all matching AQ station data CSV files. CSVs each contain stations from 1 country for 1 year and 1 pollutant. `generate_download_urls()` first generates a request, executes it, and writes all matching URLs to file. These can be picked up by `check_station_urls()` to get corresponding country, year, pollutant, and station ID for each entry. Data is finally retrieved with `download_station_data()`.
+To retrieve station measurement data via the [EEA Air Quality Download Service](https://eeadmz1-downloads-webapp.azurewebsites.net/) we need to follow a 2-step process. First, `station_data_urls()` sends an API-request to collect the URLs of all files relevant to the user according to filter preferences (countries, pollutants, datasets). Then `download_station_data()` writes the files to a local directory. The download can be run in parallel by setting `cores > 1`, which speeds up the task tremendously.
 
-Download AQ data for 3 countries of interest and 4 pollutants of interest:
+Let's download verified air quality data for 2 countries and 4 pollutants of interest:
 
-- Netherlands, Belgium, Luxembourg
-- NO2, O3, PM10, PM2.5
+- Countries: Ireland, Luxembourg
+- Pollutants: NO2, O3, PM10, PM2.5
+- Datasets: E1a, E2a
 
 ```{r}
-countries = c("LU")
-pollutants = c(7,8,5,6001)
-dl_file = "tests/test_download_urls.txt"
+countries = c("IE","LU")
+pollutants = c(7, 8, 5, 6001)
+datasets = c(1,2)
+dl_dir = "tests/download"
 
-generate_download_urls(countries, pollutants, 2015, 2016, file = dl_file)
-check_station_urls(dl_file)
-files = download_station_data(dl_file, "tests/download")  
-
-head(files)
+pq_files = station_data_urls(country = countries, 
+                             pollutant = pollutants, 
+                             dataset = datasets) |> 
+  download_station_data(dir = dl_dir, 
+                        cores = 6)
 ```
 
+```{r}
+length(pq_files)
+```
+
+Using Apache Arrow, we can read the headers of all Parquet file in our download directory to get an idea of our data structure.
+
+```{r, message=FALSE, warning=FALSE}
+library(arrow)
+(data = open_dataset(dl_dir))
+```
 
 # Pre-processing
 
-Combine and filter data to become analysis-ready. Respective functions use lazy `data.table`-objects created with `dtplyr` to chain processing steps and execute the efficiently all at once.
+After downloading we have the raw Parquet files on our disk. They carry redundant information and their structure (single time series per station and pollutant) needs to be improved for further analysis. Here we filter and combine the data so it becomes analysis-ready. First, we discard observations, that do not fulfill our requirements regarding validity and verification. We then add some station meta data (like the station code) and rearrange the tables to have a single time series per station with a column for each measured pollutant (PM10, PM2.5, O3, NO2).
 
 **Quality filter:**
 
-- which [validity classes](http://dd.eionet.europa.eu/vocabulary/aq/observationvalidity/view) should be included?
+- `keep_validity`: which [validity classes](http://dd.eionet.europa.eu/vocabulary/aq/observationvalidity/view) should be included?
     - currently 1
-- which [verification classes](http://dd.eionet.europa.eu/vocabulary/aq/observationverification/view) should be included?
+- `keep_verification`: which [verification classes](http://dd.eionet.europa.eu/vocabulary/aq/observationverification/view) should be included?
     - currently 1 & 2
   
-**Station filter:**
-
-keep background stations from rural, urban, and suburban areas.
-  
-Wrangle downloaded CSVs to time series tables with a spatial reference.
-
-1. read and combine files by pollutant
-2. apply validation / verification flags
-
 ```{r}
-station_meta = arrow::read_parquet("AQ_stations/EEA_stations_meta.parquet")
+prep_dir = "tests/01_hourly"
 
-countries = c("LU")
-no2 = read_pollutant_dt(files, pollutant = "NO2", countries = countries) |> filter_quality()
-o3 = read_pollutant_dt(files, pollutant = "O3", countries = countries) |> filter_quality()
-pm10 = read_pollutant_dt(files, pollutant = "PM10", countries = countries) |> filter_quality()
-pm25 = read_pollutant_dt(files, pollutant = "PM2.5", countries = countries) |> filter_quality()
+station_meta = read_parquet("AQ_stations/EEA_stations_meta_SamplingPoint.parquet")
+
+preprocess_station_data(dir = dl_dir, 
+                        out_dir = prep_dir, 
+                        station_meta = station_meta, 
+                        keep_validity = 1, 
+                        keep_verification = c(1,2))
 ```
 
-3. join tables to a single time series with measurements of multiple pollutants
-4. add station meta data including locations
+`preprocess_station_data()` works on all stations from one country at a time, so we get one Parquet file per country as output. See below the new structure of our data and the list of countries we processed.
 
 ```{r}
-pollutants = list(NO2=no2, O3=o3, PM2.5=pm25, PM10=pm10)
-poll_table = join_pollutants(pollutants)
+prep_data = open_dataset(prep_dir)
+```
 
-class(poll_table)
-poll_table = as.data.table(poll_table)
-class(poll_table)
-
-summary(poll_table)
-purrr::map(poll_table |> select(names(pollutants)), function(x) sum(!is.na(x))) |> unlist()
-nrow(poll_table)
-
-# Station properties
-table(poll_table$AirQualityStationEoICode |> droplevels())
-table(poll_table$StationArea)
-table(poll_table$StationType)
-
-arrow::write_parquet(poll_table, "tests/LU_hourly_2015-2016_gaps.parquet")
+```{r}
+list.files(prep_dir)
 ```
 

@@ -1,205 +1,138 @@
 # Download EEA AQ Station Data
 Johannes Heisig
-2024-01-15
+2024-06-07
+
+In this notebook we show how to access, download, and pre-process
+European air quality data. The EEA recently switched to storing its
+measurements in `Parquet` file format, allowing better compression,
+faster downloads, and more efficient downstream analysis.
 
 ``` r
-suppressPackageStartupMessages({
-  library(dplyr)
-  library(tidyr)
-  library(sf)
-  library(data.table)
-})
-
+# load functions for download and preprocessing
 source("R/functions.R")
 ```
 
+# Data
+
+EEA measurement station data are organized into single files for each
+combination of station, pollutant, and dataset. Pollutants are
+represented by numeric codes (e.g 7 = Ozone). A full list is available
+in the [EEA Air Quality
+Vocabulary](https://dd.eionet.europa.eu/vocabulary/aq/pollutant/view).
+There are three types of datasets according to the time of recording:
+
+- \[1\] up-to-date, unverified data from 2023 until now (E2a)
+- \[2\] verified data from between 2013 and 2022 (E1a)
+- \[3\] historical Airbase data from between 2002 and 2012
+
 # Download
 
-Construct URLS like the [EEA discomap
-service](https://discomap.eea.europa.eu/map/fme/AirQualityExport.htm)
-that return links to all matching AQ station data CSV files. CSVs each
-contain stations from 1 country for 1 year and 1 pollutant.
-`generate_download_urls()` first generates a request, executes it, and
-writes all matching URLs to file. These can be picked up by
-`check_station_urls()` to get corresponding country, year, pollutant,
-and station ID for each entry. Data is finally retrieved with
-`download_station_data()`.
+To retrieve station measurement data via the [EEA Air Quality Download
+Service](https://eeadmz1-downloads-webapp.azurewebsites.net/) we need to
+follow a 2-step process. First, `station_data_urls()` sends an
+API-request to collect the URLs of all files relevant to the user
+according to filter preferences (countries, pollutants, datasets). Then
+`download_station_data()` writes the files to a local directory. The
+download can be run in parallel by setting `cores > 1`, which speeds up
+the task tremendously.
 
-Download AQ data for 3 countries of interest and 4 pollutants of
-interest:
+Let’s download verified air quality data for 2 countries and 4
+pollutants of interest:
 
-- Netherlands, Belgium, Luxembourg
-- NO2, O3, PM10, PM2.5
-
-``` r
-countries = c("LU")
-pollutants = c(7,8,5,6001)
-dl_file = "tests/test_download_urls.txt"
-
-generate_download_urls(countries, pollutants, 2015, 2016, file = dl_file)
-```
-
-    Generated 49 station URLs from 1 countries and 4 pollutants between 2015 and 2016
-
-    URLs are written to file: tests/test_download_urls.txt
+- Countries: Ireland, Luxembourg
+- Pollutants: NO2, O3, PM10, PM2.5
+- Datasets: E1a, E2a
 
 ``` r
-check_station_urls(dl_file)
+countries = c("IE","LU")
+pollutants = c(7, 8, 5, 6001)
+datasets = c(1,2)
+dl_dir = "tests/download"
+
+pq_files = station_data_urls(country = countries, 
+                             pollutant = pollutants, 
+                             dataset = datasets) |> 
+  download_station_data(dir = dl_dir, 
+                        cores = 6)
 ```
 
-![](EEA_AQ_data_access_files/figure-commonmark/unnamed-chunk-2-1.png)
+    Download took 11 seconds.
 
 ``` r
-files = download_station_data(dl_file, "tests/download")  
-
-head(files)
+length(pq_files)
 ```
 
-      Country Pollutant Year Station                           File
-    1      LU        O3 2015   27196 LU_7_27196_2015_timeseries.csv
-    2      LU        O3 2015   27112 LU_7_27112_2015_timeseries.csv
-    3      LU        O3 2015   27176 LU_7_27176_2015_timeseries.csv
-    4      LU        O3 2015   27126 LU_7_27126_2015_timeseries.csv
-    5      LU        O3 2015   27201 LU_7_27201_2015_timeseries.csv
-    6      LU        O3 2016   27196 LU_7_27196_2016_timeseries.csv
+    [1] 750
+
+Using Apache Arrow, we can read the headers of all Parquet file in our
+download directory to get an idea of our data structure.
+
+``` r
+library(arrow)
+(data = open_dataset(dl_dir))
+```
+
+    FileSystemDataset with 750 Parquet files
+    Samplingpoint: string
+    Pollutant: int32
+    Start: timestamp[ns] not null
+    End: timestamp[ns] not null
+    Value: decimal128(38, 18)
+    Unit: string
+    AggType: string
+    Validity: int32 not null
+    Verification: int32 not null
+    ResultTime: timestamp[ns] not null
+    DataCapture: decimal128(38, 18)
+    FkObservationLog: string
 
 # Pre-processing
 
-Combine and filter data to become analysis-ready. Respective functions
-use lazy `data.table`-objects created with `dtplyr` to chain processing
-steps and execute the efficiently all at once.
+After downloading we have the raw Parquet files on our disk. They carry
+redundant information and their structure (single time series per
+station and pollutant) needs to be improved for further analysis. Here
+we filter and combine the data so it becomes analysis-ready. First, we
+discard observations, that do not fulfill our requirements regarding
+validity and verification. We then add some station meta data (like the
+station code) and rearrange the tables to have a single time series per
+station with a column for each measured pollutant (PM10, PM2.5, O3,
+NO2).
 
 **Quality filter:**
 
-- which [validity
+- `keep_validity`: which [validity
   classes](http://dd.eionet.europa.eu/vocabulary/aq/observationvalidity/view)
   should be included?
   - currently 1
-- which [verification
+- `keep_verification`: which [verification
   classes](http://dd.eionet.europa.eu/vocabulary/aq/observationverification/view)
   should be included?
   - currently 1 & 2
 
-**Station filter:**
-
-keep background stations from rural, urban, and suburban areas.
-
-Wrangle downloaded CSVs to time series tables with a spatial reference.
-
-1.  read and combine files by pollutant
-2.  apply validation / verification flags
-
 ``` r
-station_meta = arrow::read_parquet("AQ_stations/EEA_stations_meta.parquet")
+prep_dir = "tests/01_hourly"
 
-countries = c("LU")
-no2 = read_pollutant_dt(files, pollutant = "NO2", countries = countries) |> filter_quality()
-o3 = read_pollutant_dt(files, pollutant = "O3", countries = countries) |> filter_quality()
-pm10 = read_pollutant_dt(files, pollutant = "PM10", countries = countries) |> filter_quality()
-pm25 = read_pollutant_dt(files, pollutant = "PM2.5", countries = countries) |> filter_quality()
+station_meta = read_parquet("AQ_stations/EEA_stations_meta_SamplingPoint.parquet")
+
+preprocess_station_data(dir = dl_dir, 
+                        out_dir = prep_dir, 
+                        station_meta = station_meta, 
+                        keep_validity = 1, 
+                        keep_verification = c(1,2))
 ```
 
-3.  join tables to a single time series with measurements of multiple
-    pollutants
-4.  add station meta data including locations
+    IE - LU - 
+
+`preprocess_station_data()` works on all stations from one country at a
+time, so we get one Parquet file per country as output. See below the
+new structure of our data and the list of countries we processed.
 
 ``` r
-pollutants = list(NO2=no2, O3=o3, PM2.5=pm25, PM10=pm10)
-poll_table = join_pollutants(pollutants)
+prep_data = open_dataset(prep_dir)
 ```
-
-    Joining: - NO2 - O3 - PM2.5 - PM10
 
 ``` r
-class(poll_table)
+list.files(prep_dir)
 ```
 
-    [1] "dtplyr_step_group" "dtplyr_step"      
-
-``` r
-poll_table = as.data.table(poll_table)
-class(poll_table)
-```
-
-    [1] "data.table" "data.frame"
-
-``` r
-summary(poll_table)
-```
-
-     AirQualityStationEoICode         StationArea        StationType   
-     LU0102A:17429            rural         :17295   background:52599  
-     LU0104A:17295            rural-nearcity:    0   industrial:    0  
-     LU0101A:17150            rural-regional:    0   traffic   :30378  
-     LU0108A:16709            rural-remote  :    0                     
-     LU0109A:13669            suburban      :  725                     
-     LU0106A:  725            urban         :64957                     
-     (Other):    0                                                     
-       Longitude        Latitude       Elevation      Population        CLC8      
-     Min.   :5.847   Min.   :49.51   Min.   :2318   Min.   :  93   HDR    :47528  
-     1st Qu.:5.977   1st Qu.:49.60   1st Qu.:2865   1st Qu.:6363   LDR    :18154  
-     Median :6.118   Median :49.61   Median :2891   Median :6682   AGR    :17295  
-     Mean   :6.038   Mean   :49.61   Mean   :2894   Mean   :5531   IND    :    0  
-     3rd Qu.:6.128   3rd Qu.:49.61   3rd Qu.:2965   3rd Qu.:6727   TRAF   :    0  
-     Max.   :6.138   Max.   :49.73   Max.   :3045   Max.   :8208   UGR    :    0  
-                                                                   (Other):    0  
-     DatetimeBegin                         NO2               O3        
-     Min.   :2015-01-01 00:00:00.00   Min.   :  0.20   Min.   :  0.00  
-     1st Qu.:2015-07-28 00:00:00.00   1st Qu.: 13.90   1st Qu.: 17.00  
-     Median :2016-01-17 15:00:00.00   Median : 26.10   Median : 41.00  
-     Mean   :2016-01-14 17:12:36.85   Mean   : 30.56   Mean   : 42.12  
-     3rd Qu.:2016-07-10 08:00:00.00   3rd Qu.: 42.70   3rd Qu.: 61.00  
-     Max.   :2016-12-31 23:00:00.00   Max.   :236.90   Max.   :187.00  
-                                      NA's   :2666     NA's   :34106   
-         PM2.5             PM10         Countrycode   
-     Min.   :  0.00   Min.   :  0.00   LU     :82977  
-     1st Qu.:  7.00   1st Qu.: 13.00   AD     :    0  
-     Median : 10.00   Median : 19.00   AL     :    0  
-     Mean   : 12.55   Mean   : 21.09   AT     :    0  
-     3rd Qu.: 16.00   3rd Qu.: 26.00   BA     :    0  
-     Max.   :481.00   Max.   :477.00   BE     :    0  
-     NA's   :39324    NA's   :35884    (Other):    0  
-
-``` r
-purrr::map(poll_table |> select(names(pollutants)), function(x) sum(!is.na(x))) |> unlist()
-```
-
-      NO2    O3 PM2.5  PM10 
-    80311 48871 43653 47093 
-
-``` r
-nrow(poll_table)
-```
-
-    [1] 82977
-
-``` r
-# Station properties
-table(poll_table$AirQualityStationEoICode |> droplevels())
-```
-
-
-    LU0101A LU0102A LU0104A LU0108A LU0109A LU0106A 
-      17150   17429   17295   16709   13669     725 
-
-``` r
-table(poll_table$StationArea)
-```
-
-
-             rural rural-nearcity rural-regional   rural-remote       suburban 
-             17295              0              0              0            725 
-             urban 
-             64957 
-
-``` r
-table(poll_table$StationType)
-```
-
-
-    background industrial    traffic 
-         52599          0      30378 
-
-``` r
-arrow::write_parquet(poll_table, "tests/LU_hourly_2015-2016_gaps.parquet")
-```
+    [1] "IE_hourly.parquet" "LU_hourly.parquet"
