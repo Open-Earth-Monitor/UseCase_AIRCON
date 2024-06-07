@@ -41,7 +41,6 @@ station_meta_sampling_point = read.csv("AQ_stations/EEA_station_meta.csv") |>
   ungroup()
 ```
 
-<<<<<<< HEAD
 ```{r, message=FALSE}
 # reduce to one entry per station
 station_single = select(station_meta_sampling_point, 
@@ -58,42 +57,6 @@ station_single_sf = st_as_sf(station_single,
                              coords = c("Longitude","Latitude"), 
                              crs = 4326,  
                              remove = F) |> 
-=======
-# Stations
-
-Create a table with rows for each station. Each has a type (background, industrial, traffic), an area label (rural, urban, suburban), and coordinates in lon/lat.
-The original station meta data table can be downloaded from the [EEA website](https://discomap.eea.europa.eu/App/AQViewer/index.html?fqn=Airquality_Dissem.b2g.measurements).
-
-```{r}
-station_meta = read.csv("AQ_stations/EEA_station_meta.csv") |> 
-  select(Sampling.Point.Id, Air.Quality.Station.EoI.Code, Air.Pollutant, 
-         Longitude, Latitude, 
-         Station.Area = Air.Quality.Station.Area, 
-         Station.Type = Air.Quality.Station.Type) |> 
-  filter(Air.Pollutant %in% c("PM2.5", "PM10", "NO2", "O3")) |> 
-  mutate(Air.Pollutant = as.factor(Air.Pollutant),
-         Air.Quality.Station.EoI.Code = as.factor(Air.Quality.Station.EoI.Code),
-         Countrycode = as.factor(substr(Air.Quality.Station.EoI.Code,1,2)),
-         Station.Type = as.factor(Station.Type),
-         Station.Area = as.factor(Station.Area)) |> 
-  unique() |> 
-  # make sure there are no variations in coordinates
-  group_by(Sampling.Point.Id, Air.Quality.Station.EoI.Code, Countrycode,
-           Station.Type, Station.Area, Air.Pollutant) |>
-  summarise(Longitude = mean(Longitude), 
-            Latitude = mean(Latitude), .groups = 'drop') |> 
-  group_by(Sampling.Point.Id, Station.Area, Air.Pollutant) |> 
-  # if two types registered for 1 station, label them as non-background (n=45).
-  filter(!(n() > 1 & !Station.Type == "background")) |> 
-  ungroup()
-
-write_parquet(station_meta, "AQ_stations/EEA_stations_meta_SamplingPoint.parquet")
-
-# turn unique stations into spatial point data
-station_laea = select(station_meta, -Sampling.Point.Id) |> 
-  unique() |> 
-  st_as_sf(coords = c("Longitude","Latitude"), crs = 4326,  remove = F) |> 
->>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
   st_transform(st_crs(3035))
 ```
 
@@ -102,7 +65,6 @@ station_laea = select(station_meta, -Sampling.Point.Id) |>
 Check properties of unique stations.
 
 ```{r check-station-meta}
-<<<<<<< HEAD
 # sampling points by station type
 table(station_meta_sampling_point$Air.Pollutant, 
       station_meta_sampling_point$Station.Type)
@@ -114,25 +76,12 @@ table(station_meta_sampling_point$Air.Pollutant,
 # station area by station type
 table(station_single$Station.Area, 
       station_single$Station.Type)
-=======
-summary(station_laea)
-
-table(station_laea$Air.Pollutant, station_laea$Station.Type)
-table(station_laea$Air.Pollutant, station_laea$Station.Area)
-table(station_laea$Station.Area, station_laea$Station.Type)
-
-station_final = select(station_laea, -Air.Pollutant) |> 
-  group_by(Air.Quality.Station.EoI.Code, Countrycode) |> 
-  filter(row_number()==1) |> 
-  ungroup()
->>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
 
 summary(station_single)
 ```
 
 # Write files
 
-<<<<<<< HEAD
 ```{r, message=FALSE}
 library(arrow)
 library(geoarrow)
@@ -147,25 +96,13 @@ write_parquet(station_single,
 
 # stations spatial
 write_geoparquet(station_single_sf,
-=======
-```{r}
-
-st_drop_geometry(station_final) |> 
-  write_parquet("AQ_stations/EEA_stations_meta_table.parquet")
-
-write_geoparquet(station_final, 
->>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
                  "AQ_stations/EEA_stations_meta_sf.parquet")
 ```
 
 # Map
 
 ```{r}
-<<<<<<< HEAD
 filter(station_single_sf, between(Longitude, -25, 45))["Station.Type"] |> 
-=======
-filter(station_final, between(Longitude, -25, 45))["Station.Type"] |> 
->>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
   plot(axes=T, pch=16, cex = 0.7)
 ```
 

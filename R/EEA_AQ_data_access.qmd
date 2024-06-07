@@ -14,11 +14,7 @@ knitr:
 In this notebook we show how to access, download, and pre-process European air quality data. The EEA recently switched to storing its measurements in `Parquet` file format, allowing better compression, faster downloads, and more efficient downstream analysis.
 
 ```{r}
-<<<<<<< HEAD
 # load functions for download and preprocessing
-=======
-# load functions
->>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
 source("R/functions.R")
 ```
 
@@ -34,36 +30,22 @@ EEA measurement station data are organized into single files for each combinatio
 
 To retrieve station measurement data via the [EEA Air Quality Download Service](https://eeadmz1-downloads-webapp.azurewebsites.net/) we need to follow a 2-step process. First, `station_data_urls()` sends an API-request to collect the URLs of all files relevant to the user according to filter preferences (countries, pollutants, datasets). Then `download_station_data()` writes the files to a local directory. The download can be run in parallel by setting `cores > 1`, which speeds up the task tremendously.
 
-<<<<<<< HEAD
 Let's download verified air quality data for 2 countries and 4 pollutants of interest:
 
 - Countries: Ireland, Luxembourg
 - Pollutants: NO2, O3, PM10, PM2.5
 - Datasets: E1a, E2a
-=======
-Let's download verified AQ data for 2 countries and 4 pollutants of interest:
 
-- Ireland, Luxembourg
-- NO2, O3, PM10, PM2.5
-- datasets E1a and E2a
->>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
 
 ```{r}
 countries = c("IE","LU")
 pollutants = c(7, 8, 5, 6001)
-<<<<<<< HEAD
 datasets = c(1,2)
-=======
->>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
 dl_dir = "tests/download"
 
 pq_files = station_data_urls(country = countries, 
                              pollutant = pollutants, 
-<<<<<<< HEAD
                              dataset = datasets) |> 
-=======
-                             datasets = c(1,2)) |> 
->>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
   download_station_data(dir = dl_dir, 
                         cores = 6)
 ```

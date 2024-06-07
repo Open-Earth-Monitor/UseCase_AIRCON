@@ -1,11 +1,7 @@
 ## Downloads   ==================================================================
 
 station_data_urls = function(country, pollutant, 
-<<<<<<< HEAD
                              dataset = c(1,2), 
-=======
-                             datasets = c(1,2), 
->>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
                              urlfile = NULL){
   if (!is.null(urlfile) && file.exists(urlfile)){
     stop("URL file already exists. Please use a different urlfile name.")
@@ -148,7 +144,6 @@ pivot_poll = function(x){
 
 arrow_substr <- function(context, string) {
   stringr::str_sub(string, 4)
-<<<<<<< HEAD
 }
 
 arrow::register_scalar_function(
@@ -309,7 +304,6 @@ add_meta = function(pollutant){
 #   } else  message_parallel(paste(country, "completed."))
 # }
 # 
->>>>>>> e45c183328823f816ebd986117069d2c1c9aa349
 
 
 # add_meta = function(pollutant){
