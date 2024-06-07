@@ -1,5 +1,6 @@
 # Data
 AQ_data/*
+AQ_maps/*
 AQ_stations/*.csv
 AQ_stations/*.gpkg
 download/*
@@ -12,6 +13,7 @@ R/images
 # History files
 .Rhistory
 .Rapp.history
+.ipynb_checkpoints/*
 # Session Data files
 .RData
 .RDataTmp

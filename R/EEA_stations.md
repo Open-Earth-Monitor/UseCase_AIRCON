@@ -1,160 +1,156 @@
 # EEA Air Quality Stations
 Johannes Heisig
-2024-01-17
-
-``` r
-suppressPackageStartupMessages({
-  library(dplyr)
-  library(tidyr)
-  library(sf)
-  library(arrow)
-  library(geoarrow)
-})
-```
-
-# Stations
+2024-06-07
 
 Create a table with rows for each station. Each has a type (background,
 industrial, traffic), an area label (rural, urban, suburban), and
-coordinates in lon/lat.
-
-Station [meta data
-file](https://discomap.eea.europa.eu/map/fme/metadata/PanEuropean_metadata.csv)
-comes from EEA.
+coordinates in lon/lat. The original station meta data table can be
+downloaded from the [EEA
+website](https://discomap.eea.europa.eu/App/AQViewer/index.html?fqn=Airquality_Dissem.b2g.measurements)
+as CSV. In the following we will read and arrange the table, exclude
+unnecessary information and write the result. The first version will
+have one entry per sampling point (unique for each pollutant and
+station), the second version will only store a single entry per station,
+including its location.
 
 ``` r
-station_meta = read.table("AQ_stations/PanEuropean_metadata.csv", 
-                          sep = "\t", header = T) |> 
-  select(AirQualityStationEoICode, Countrycode, 
-         Longitude, Latitude,
-         StationType = AirQualityStationType, 
-         StationArea = AirQualityStationArea,
-         AirPollutant = AirPollutantCode) |> 
-  mutate(AirPollutant = factor(basename(AirPollutant),
-                               levels = c(6001, 5, 8, 7),
-                               labels = c("PM2.5", "PM10", "NO2", "O3"))) |> 
-  filter(!is.na(AirPollutant)) |> 
+library(dplyr)
+
+station_meta_sampling_point = read.csv("AQ_stations/EEA_station_meta.csv") |> 
+  # meta data of interest
+  select(Sampling.Point.Id, Air.Quality.Station.EoI.Code, Air.Pollutant, 
+         Longitude, Latitude, 
+         Station.Area = Air.Quality.Station.Area, 
+         Station.Type = Air.Quality.Station.Type) |> 
+  # pollutants of interest
+  filter(Air.Pollutant %in% c("PM2.5", "PM10", "NO2", "O3")) |> 
+  mutate(Air.Pollutant = as.factor(Air.Pollutant),
+         Air.Quality.Station.EoI.Code = as.factor(Air.Quality.Station.EoI.Code),
+         Countrycode = as.factor(substr(Air.Quality.Station.EoI.Code,1,2)),
+         Station.Type = as.factor(Station.Type),
+         Station.Area = as.factor(Station.Area)) |> 
   unique() |> 
-  mutate(AirQualityStationEoICode = as.factor(AirQualityStationEoICode),
-         Countrycode = as.factor(Countrycode),
-         StationType = as.factor(StationType),
-         StationArea = as.factor(StationArea)) |> 
-  group_by(AirQualityStationEoICode, Countrycode, 
-           StationType, StationArea, AirPollutant) |>
+  # make sure there are no variations in coordinates
+  group_by(Sampling.Point.Id, Air.Quality.Station.EoI.Code, Countrycode,
+           Station.Type, Station.Area, Air.Pollutant) |>
   summarise(Longitude = mean(Longitude), 
-            Latitude = mean(Latitude), .groups = 'drop') |> 
-  group_by(AirQualityStationEoICode, StationArea, AirPollutant) |> 
+            Latitude = mean(Latitude), 
+            .groups = 'drop') |> 
+  group_by(Sampling.Point.Id, Station.Area, Air.Pollutant) |> 
   # if two types registered for 1 station, label them as non-background (n=45).
-  filter(!(n() > 1 & !StationType == "background")) |> 
+  filter(!(n() > 1 & !Station.Type == "background")) |> 
+  ungroup()
+```
+
+``` r
+# reduce to one entry per station
+station_single = select(station_meta_sampling_point, 
+                        -Sampling.Point.Id, 
+                        -Air.Pollutant) |> 
+  unique() |> 
+  group_by(Air.Quality.Station.EoI.Code) |> 
+  filter(row_number() == 1) |> 
   ungroup()
 
-station_laea = 
-  select(station_meta, AirQualityStationEoICode, Longitude, Latitude) |> 
-  unique() |> 
-  st_as_sf(coords = c("Longitude","Latitude"), crs = 4326) |> 
+# turn unique stations into spatial point data
+library(sf)
+station_single_sf = st_as_sf(station_single, 
+                             coords = c("Longitude","Latitude"), 
+                             crs = 4326,  
+                             remove = F) |> 
   st_transform(st_crs(3035))
 ```
 
 # Result
 
-``` r
-summary(station_meta)
-```
-
-     AirQualityStationEoICode  Countrycode       StationType  
-     AD0942A:    4            IT     :2135   background:9872  
-     AL0203A:    4            ES     :2054   industrial:1934  
-     AL0204A:    4            DE     :1966   traffic   :3863  
-     AL0205A:    4            FR     :1881                    
-     AL0206A:    4            TR     :1241                    
-     AL0208A:    4            PL     :1024                    
-     (Other):15645            (Other):5368                    
-             StationArea   AirPollutant   Longitude          Latitude     
-     rural         :1804   PM2.5:2834   Min.   :-63.081   Min.   :-21.34  
-     rural-nearcity: 253   PM10 :4660   1st Qu.:  3.236   1st Qu.: 41.67  
-     rural-regional: 449   NO2  :5057   Median : 10.670   Median : 46.76  
-     rural-remote  : 124   O3   :3118   Mean   : 10.717   Mean   : 46.33  
-     suburban      :3564                3rd Qu.: 17.910   3rd Qu.: 50.93  
-     urban         :9475                Max.   : 55.628   Max.   : 78.91  
-                                                                          
+Check properties of unique stations.
 
 ``` r
-table(station_meta$AirPollutant, station_meta$StationType)
+# sampling points by station type
+table(station_meta_sampling_point$Air.Pollutant, 
+      station_meta_sampling_point$Station.Type)
 ```
 
            
             background industrial traffic
-      PM2.5       1836        317     681
-      PM10        2808        643    1209
-      NO2         2720        631    1706
-      O3          2508        343     267
+      NO2         3042        709    2106
+      O3          2780        364     384
+      PM10        3614        871    1650
+      PM2.5       2351        398     871
 
 ``` r
-table(station_meta$AirPollutant, station_meta$StationArea)
+# sampling points by station area
+table(station_meta_sampling_point$Air.Pollutant, 
+      station_meta_sampling_point$Station.Area)
 ```
 
            
             rural rural-nearcity rural-regional rural-remote suburban urban
-      PM2.5   271             46             83           21      609  1804
-      PM10    473             77            104           25     1075  2906
-      NO2     548             71            112           30     1085  3211
-      O3      512             59            150           48      795  1554
+      NO2     620             88            126           31     1257  3735
+      O3      587             71            162           49      892  1767
+      PM10    594            101            143           29     1442  3826
+      PM2.5   363             54            112           26      754  2311
 
 ``` r
-table(station_meta$StationArea, station_meta$StationType)
+# station area by station type
+table(station_single$Station.Area, 
+      station_single$Station.Type)
 ```
 
                     
                      background industrial traffic
-      rural                1421        348      35
-      rural-nearcity        201         38      14
-      rural-regional        438          7       4
-      rural-remote          124          0       0
-      suburban             2275        863     426
-      urban                5413        678    3384
+      rural                 525        165      18
+      rural-nearcity         91         26       9
+      rural-regional        190          3       5
+      rural-remote           49          0       0
+      suburban              922        380     216
+      urban                1977        273    1890
 
 ``` r
-station_final = select(station_meta, -AirPollutant) |> 
-  group_by(AirQualityStationEoICode, Countrycode) |> 
-  filter(row_number()==1)
-
-summary(station_final)
+summary(station_single)
 ```
 
-     AirQualityStationEoICode  Countrycode       StationType  
-     4101422:   1             DE     : 869   background:3538  
-     4101522:   1             FR     : 753   industrial: 753  
-     AD0942A:   1             IT     : 747   traffic   :1805  
-     AD0944A:   1             ES     : 715                    
-     AD0945A:   1             PL     : 461                    
-     AL0203A:   1             TR     : 348                    
-     (Other):6090             (Other):2203                    
-             StationArea     Longitude          Latitude     
-     rural         : 660   Min.   :-63.081   Min.   :-21.34  
-     rural-nearcity: 112   1st Qu.:  3.737   1st Qu.: 42.72  
-     rural-regional: 181   Median : 10.012   Median : 48.00  
-     rural-remote  :  48   Mean   : 10.413   Mean   : 47.07  
-     suburban      :1367   3rd Qu.: 17.172   3rd Qu.: 51.21  
-     urban         :3728   Max.   : 55.628   Max.   : 78.91  
+     Air.Quality.Station.EoI.Code  Countrycode       Station.Type 
+     AD0942A:   1                 DE     : 961   background:3754  
+     AD0944A:   1                 IT     : 821   industrial: 847  
+     AD0945A:   1                 FR     : 756   traffic   :2138  
+     AL0201A:   1                 ES     : 737                    
+     AL0202A:   1                 PL     : 481                    
+     AL0203A:   1                 TR     : 348                    
+     (Other):6733                 (Other):2635                    
+             Station.Area    Longitude          Latitude     
+     rural         : 708   Min.   :-63.081   Min.   :-21.34  
+     rural-nearcity: 126   1st Qu.:  4.364   1st Qu.: 43.14  
+     rural-regional: 198   Median : 10.151   Median : 48.26  
+     rural-remote  :  49   Mean   : 10.527   Mean   : 47.27  
+     suburban      :1518   3rd Qu.: 17.193   3rd Qu.: 51.22  
+     urban         :4140   Max.   : 55.628   Max.   : 78.91  
                                                              
 
 # Write files
 
 ``` r
-write_parquet(station_final, "AQ_stations/EEA_stations_meta.parquet")
+library(arrow)
+library(geoarrow)
 
+# sampling points
+write_parquet(station_meta_sampling_point, 
+              "AQ_stations/EEA_stations_meta_SamplingPoint.parquet")
 
-station_final_sf = st_as_sf(station_final, crs = 4326, remove = F, 
-                            coords = c("Longitude","Latitude")) |> 
-  st_transform(st_crs(3035)) 
+# stations non-spatial
+write_parquet(station_single, 
+              "AQ_stations/EEA_stations_meta_table.parquet")
 
-write_geoparquet(station_final_sf, 
+# stations spatial
+write_geoparquet(station_single_sf,
                  "AQ_stations/EEA_stations_meta_sf.parquet")
 ```
 
+# Map
+
 ``` r
-filter(station_final_sf, between(Longitude, -25, 45))["StationType"] |> 
+filter(station_single_sf, between(Longitude, -25, 45))["Station.Type"] |> 
   plot(axes=T, pch=16, cex = 0.7)
 ```
 
-![](EEA_stations_files/figure-commonmark/unnamed-chunk-3-1.png)
+![](EEA_stations_files/figure-commonmark/unnamed-chunk-4-1.png)
