@@ -1,27 +1,33 @@
 library(dplyr)
 library(pbmcapply)
-library(data.table)
-library(dtplyr)
+library(arrow)
 source("R/functions.R")
 
-station_meta = arrow::read_parquet("AQ_stations/EEA_stations_meta.parquet")
-
+station_meta = read_parquet("AQ_stations/EEA_stations_meta_SamplingPoint.parquet")
 countries = unique(station_meta$Countrycode) |> as.character() |> sort()
-pollutants = c(7,8,5,6001)
+pollutants = c(7, 8, 5, 6001)
+datasets = c(1,2)
+dl_dir = "download"
 
-dl_file = "download_urls_all_countries.txt" 
 
-#generate_download_urls(countries, pollutants, year_start = 2015, year_end = 2023, file = dl_file)
-#check_station_urls(dl_file)
-files = download_station_data(dl_file) # 2 errors in 87342 files
-table(files$Country, files$Pollutant)
+pq_files = station_data_urls(country = countries, 
+                             pollutant = pollutants, 
+                             dataset = datasets) |> 
+  download_station_data(dir = dl_dir, 
+                        cores = 8)
+
 
 # read, filter, join pollutants for 2015-2023
-measurement_counts = mclapply(countries, preprocess_AQ_by_country, 
-                              dl_files = files, 
-                              outdir = "AQ_data/01_hourly_gaps", 
-                              mc.cores = 4)
+prep_dir = "AQ_data/01_hourly"
+
+preprocess_station_data(dir = dl_dir, 
+                        out_dir = prep_dir, 
+                        station_meta = station_meta, 
+                        keep_validity = 1, 
+                        keep_verification = c(1,2), 
+                        progress = F)
 
 
-# any countries not processed?
-# countries[!countries %in% substr(list.files("AQ_data/01_hourly_gaps"),1,2)]
+prep_data = arrow::open_dataset(prep_dir)
+
+list.files(prep_dir)

@@ -33,13 +33,13 @@ To retrieve station measurement data via the [EEA Air Quality Download Service](
 Let's download verified air quality data for 2 countries and 4 pollutants of interest:
 
 - Countries: Ireland, Luxembourg
-- Pollutants: NO2, O3, PM10, PM2.5
+- Pollutants: SO2, NO2, O3, PM10, PM2.5
 - Datasets: E1a, E2a
 
 
 ```{r}
 countries = c("IE","LU")
-pollutants = c(7, 8, 5, 6001)
+pollutants = c(1, 7, 8, 5, 6001)
 datasets = c(1,2)
 dl_dir = "tests/download"
 

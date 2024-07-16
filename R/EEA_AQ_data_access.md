@@ -1,6 +1,6 @@
 # Download EEA AQ Station Data
 Johannes Heisig
-2024-06-07
+2024-07-03
 
 In this notebook we show how to access, download, and pre-process
 European air quality data. The EEA recently switched to storing its
@@ -55,8 +55,6 @@ pq_files = station_data_urls(country = countries,
   download_station_data(dir = dl_dir, 
                         cores = 6)
 ```
-
-    Download took 11 seconds.
 
 ``` r
 length(pq_files)
