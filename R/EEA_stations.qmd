@@ -22,7 +22,7 @@ station_meta_sampling_point = read.csv("AQ_stations/EEA_station_meta.csv") |>
          Station.Area = Air.Quality.Station.Area, 
          Station.Type = Air.Quality.Station.Type) |> 
   # pollutants of interest
-  filter(Air.Pollutant %in% c("PM2.5", "PM10", "NO2", "O3")) |> 
+  filter(Air.Pollutant %in% c("PM2.5", "PM10", "NO2", "O3", "SO2")) |> 
   mutate(Air.Pollutant = as.factor(Air.Pollutant),
          Air.Quality.Station.EoI.Code = as.factor(Air.Quality.Station.EoI.Code),
          Countrycode = as.factor(substr(Air.Quality.Station.EoI.Code,1,2)),

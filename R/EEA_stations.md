@@ -1,6 +1,6 @@
 # EEA Air Quality Stations
 Johannes Heisig
-2024-06-07
+2024-07-08
 
 Create a table with rows for each station. Each has a type (background,
 industrial, traffic), an area label (rural, urban, suburban), and
@@ -23,7 +23,7 @@ station_meta_sampling_point = read.csv("AQ_stations/EEA_station_meta.csv") |>
          Station.Area = Air.Quality.Station.Area, 
          Station.Type = Air.Quality.Station.Type) |> 
   # pollutants of interest
-  filter(Air.Pollutant %in% c("PM2.5", "PM10", "NO2", "O3")) |> 
+  filter(Air.Pollutant %in% c("PM2.5", "PM10", "NO2", "O3", "SO2")) |> 
   mutate(Air.Pollutant = as.factor(Air.Pollutant),
          Air.Quality.Station.EoI.Code = as.factor(Air.Quality.Station.EoI.Code),
          Countrycode = as.factor(substr(Air.Quality.Station.EoI.Code,1,2)),
@@ -77,6 +77,7 @@ table(station_meta_sampling_point$Air.Pollutant,
       O3          2780        364     384
       PM10        3614        871    1650
       PM2.5       2351        398     871
+      SO2         2063        764     488
 
 ``` r
 # sampling points by station area
@@ -90,6 +91,7 @@ table(station_meta_sampling_point$Air.Pollutant,
       O3      587             71            162           49      892  1767
       PM10    594            101            143           29     1442  3826
       PM2.5   363             54            112           26      754  2311
+      SO2     507             53             85           16      842  1812
 
 ``` r
 # station area by station type
@@ -99,32 +101,32 @@ table(station_single$Station.Area,
 
                     
                      background industrial traffic
-      rural                 525        165      18
-      rural-nearcity         91         26       9
-      rural-regional        190          3       5
+      rural                 531        180      17
+      rural-nearcity         88         35       8
+      rural-regional        188          7       5
       rural-remote           49          0       0
-      suburban              922        380     216
-      urban                1977        273    1890
+      suburban              965        438     213
+      urban                2026        309    1878
 
 ``` r
 summary(station_single)
 ```
 
      Air.Quality.Station.EoI.Code  Countrycode       Station.Type 
-     AD0942A:   1                 DE     : 961   background:3754  
-     AD0944A:   1                 IT     : 821   industrial: 847  
-     AD0945A:   1                 FR     : 756   traffic   :2138  
-     AL0201A:   1                 ES     : 737                    
+     AD0942A:   1                 DE     : 963   background:3847  
+     AD0944A:   1                 IT     : 827   industrial: 969  
+     AD0945A:   1                 FR     : 798   traffic   :2121  
+     AL0201A:   1                 ES     : 746                    
      AL0202A:   1                 PL     : 481                    
      AL0203A:   1                 TR     : 348                    
-     (Other):6733                 (Other):2635                    
+     (Other):6931                 (Other):2774                    
              Station.Area    Longitude          Latitude     
-     rural         : 708   Min.   :-63.081   Min.   :-21.34  
-     rural-nearcity: 126   1st Qu.:  4.364   1st Qu.: 43.14  
-     rural-regional: 198   Median : 10.151   Median : 48.26  
-     rural-remote  :  49   Mean   : 10.527   Mean   : 47.27  
-     suburban      :1518   3rd Qu.: 17.193   3rd Qu.: 51.22  
-     urban         :4140   Max.   : 55.628   Max.   : 78.91  
+     rural         : 728   Min.   :-63.081   Min.   :-21.34  
+     rural-nearcity: 131   1st Qu.:  4.347   1st Qu.: 43.15  
+     rural-regional: 200   Median :  9.966   Median : 48.28  
+     rural-remote  :  49   Mean   : 10.402   Mean   : 47.28  
+     suburban      :1616   3rd Qu.: 17.197   3rd Qu.: 51.21  
+     urban         :4213   Max.   : 55.628   Max.   : 78.91  
                                                              
 
 # Write files
