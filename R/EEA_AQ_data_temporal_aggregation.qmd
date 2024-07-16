@@ -11,37 +11,33 @@ knitr:
 ---
 ## Setup
 
-```{r setup}
-#| output: false
+```{r setup, message=FALSE, warning=FALSE}
 library(pbmcapply) # for parallel processing
-library(tictoc)    # for timing
 
 if (! basename(getwd()) == "UseCase_AIRCON") setwd("UseCase_AIRCON")
 source("R/functions.R") 
+
+gapfilled = list.files("AQ_data/03_hourly_gapfilled", full.names = T)
+pollutants = c("SO2", "PM10", "PM2.5", "NO2", "O3")
 ```
 
 ## Overview
 
-Interpolated air quality maps for Europe will be processed at a temporal resolution of days, months, and years. For this reason hourly air quality (AQ) data needs to be aggregated to coarse temporal steps. Hourly PM2.5 time series were previously gap-filled. In the aggregation process the temporal coverage of each pollutant and measurement station is assessed at daily, monthly and annual level. Observations exceeding a threshold (e.g. 75\%) are flagged. 
+Interpolated air quality maps for Europe will be processed at a temporal resolution of days, months, and years. For this reason hourly air quality (AQ) data needs to be aggregated to coarse temporal steps. Hourly PM2.5 time series were previously gap-filled. In the aggregation process the temporal coverage of each pollutant and measurement station is assessed at daily, monthly and annual level. Time series with coverage below a certain threshold (e.g. 75\%) can be excluded to assure reliability of the aggregates. 
 
-The function `process_temp_agg()` takes the path to a gap-filled (country-level) AQ data file, as well as the name of a pollutant of interest and a threshold for flagging sufficient temporal data coverage. To calculate a certain percentile instead of the mean, one can supply a value to the `perc` argument. The function returns nothing but writes daily, monthly and annual aggregates directly to file.
+The function `temporal_aggregation()` takes the path to a gap-filled (country-level) hourly AQ data file, as well as the name of a pollutant of interest and a threshold for flagging sufficient temporal data coverage. To calculate a certain percentile instead of the arithmetic mean, one can supply a value to the `perc` argument. The function returns only processing time per country file but writes daily, monthly and annual aggregates directly to file.
 
 Aggregating ozone measurements requires special attention and is described in more detail below.
 
 ## Temporal Means
 
-PM10, PM2.5 and NO2 are aggregated using the `mean()` function for all temporal resolutions.
+PM10, PM2.5, O3, SO2, and NO2 are aggregated using the `mean()` function for all temporal resolutions.
 
 ```{r means}
-gapfilled = list.files("AQ_data/03_hourly_gapfilled", full.names = T)
-pollutants = c("PM10", "PM2.5", "NO2")
-
 for (p in pollutants){
-  message(p)
-  tic()
-  m = pbmclapply(gapfilled, process_temp_agg, p, cov_threshold = 0.75,
-                 overwrite = T, mc.cores = 8)
-  toc()
+  m = pbmclapply(gapfilled, temporal_aggregation, p, cov_threshold = 0.75,
+                 keep_validity = 1, keep_verification = c(1,2,3),
+                 overwrite = F, mc.cores = 8)
 }
 ```
 
@@ -55,52 +51,76 @@ gc()
 Beside the mean, PM10 is aggregated using the 90.41th percentile (formerly 36th highest value) for monthly and annual aggregates.
 
 ```{r pm10}
-tic()
-pm = pbmclapply(gapfilled, process_temp_agg, "PM10", perc = 0.9041,
-           cov_threshold = 0.75, overwrite = T, mc.cores = 8)
-toc()
+pm = pbmclapply(gapfilled, temporal_aggregation, "PM10", 
+                perc = 0.9041, cov_threshold = 0.75,
+                keep_validity = 1, keep_verification = c(1,2,3),
+                overwrite = F, mc.cores = 8)
+```
+
+```{r gc2, eval=TRUE, include=FALSE, echo=FALSE}
+gc()
 ```
 
 ## Ozone: 93.15th percentile of daily maxima of the 8 hour running mean
 
 Ozone data requires a different temporal aggregation method than other pollutants where averages span over a moving window of 8 hours. Each station's O3 time series is filled with missing values for hours where no observation was recorded. The 8 hour running mean is then calculated with the requirement of 6 valid (non-missing) values among the 8 values of interest.
-Daily aggregates represent the maximum of the 8 hour running mean within 24 hours. Monthly and annual aggregates represent the 93.15th percentile of the daily aggregates. A threshold is applied to flag aggregates which fulfill a certain coverage requirement.
+Daily aggregates represent the maximum of the 8 hour running mean within 24 hours. Monthly and annual aggregates represent the 93.15th percentile of these daily aggregates. A threshold is applied to flag aggregates which fulfill a certain coverage requirement.
 
-This more complex approach is implemented in `process_temp_agg_8hm()`, which needs considerably longer to process.
+This more complex approach is implemented in `temporal_aggregation_running()`, which needs considerably longer to process.
 
 ```{r o3}
-tic()
-o3 = pbmclapply(gapfilled, process_O3_temp_agg_8hm, perc = 0.9315,
-           cov_threshold = 0.75, overwrite = T, mc.cores = 8)
-toc()
+o3 = purrr::map(gapfilled, temporal_aggregation_running, "O3",
+                perc = 0.9315, cov_threshold = 0.75, 
+                keep_validity = 1, keep_verification = c(1,2,3),
+                overwrite = F)
+```
+
+See below an example output of annual aggregates of O3 measurements. Next to the station ID, year and aggregated value the table include the annual daa coverage of the respective station for the specified pollutant.
+
+```{r open, message=FALSE, warning=FALSE}
+library(arrow)
+library(geoarrow)
+library(dplyr)
+
+o3_annual = open_dataset("AQ_data/06_annual/O3_max8h_perc") |> 
+  collect()
+
+head(o3_annual) 
+```
+
+Temporal aggregates can be joined with meta data to get a spatial reference and other station-related information.
+
+```{r meta, message=FALSE, warning=FALSE}
+library(sf)
+
+station_meta = read_geoparquet_sf("AQ_stations/EEA_stations_meta_sf.parquet")  
+
+o3_annual_sf = o3_annual |> 
+  inner_join(station_meta) |> 
+  filter(between(Latitude, 20, 75),        # limit to mainland Europe
+         between(Longitude,-12,45)) |> 
+  st_as_sf()
 ```
 
 
-```{r, eval=FALSE, include=FALSE}
-v = "NO2"
-vv = rlang::data_sym(v)
-mod = "mean"
+```{r plot, message=FALSE, warning=FALSE}
+library(ggplot2)
 
-a = read_parquet(paste0("AQ_data/06_annual/", v, "_annual_", mod, ".parquet"))
-#ggplot(a, aes(Countrycode, !! vv)) + geom_boxplot(aes(color = StationType)) + ggtitle(paste("Annual", v))
+# country borders
+euro = giscoR::gisco_countries |>   
+  st_transform(st_crs(o3_annual_sf)) |> 
+  st_crop(o3_annual_sf)
 
-#m = read_parquet(paste0("AQ_data/05_monthly/", v, "_monthly_", mod, ".parquet")) 
-#ggplot(m, aes(Countrycode, !! vv)) + geom_boxplot(aes(color = StationType)) + ggtitle(paste("Monthly", v))
-
-d = open_dataset(paste0("AQ_data/04_daily/",v,"_", mod)) |> select(names(a)) |> collect() |> 
-  filter(!is.na(!! vv))
-ggplot(d, aes(Countrycode, !! vv)) + geom_boxplot(aes(color = StationType)) + ggtitle(paste("Daily", v))
-ggsave(paste0("AQ_data/04_daily/boxplots_by_country/", v, ".png"))
-
-## Distribution of daily means by country
-
-![](images/NO2.png)
-
-![](images/O3.png)
-
-![](images/PM10.png)
-
-![](images/PM2.5.png)
+ggplot() +
+  geom_sf(aes(color=O3,  geometry = geometry), o3_annual_sf) +
+  geom_sf(fill="transparent",alpha = 0, color=1, data = euro) +
+  scale_color_viridis_c(option = "B") +
+  facet_wrap(~year)
 ```
+
+
+
+
+
 
 

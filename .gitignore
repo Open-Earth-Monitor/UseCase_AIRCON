@@ -4,6 +4,7 @@ AQ_maps/*
 AQ_stations/*.csv
 AQ_stations/*.gpkg
 download/*
+conda/*
 EEA_station_files/*
 supplementary/*
 *backup*
