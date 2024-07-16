@@ -18,13 +18,13 @@ library(tictoc)
 library(stars)
 })
 source("R/functions.R")
-station_meta = read_parquet("AQ_stations/EEA_stations_meta.parquet")
+station_meta = geoarrow::read_geoparquet_sf("AQ_stations/EEA_stations_meta_sf.parquet")
 ```
 
 
 # Read Data
 
-Open hourly data for all 40 countries, but filter while reading to limit memory needs (using the arrow library).
+Open hourly data for all 40 countries, but filter while reading to limit memory needs (using the arrow library). Here we are reading only data relevant for building a linear gap-filling model (so `PM2.5 > 0 & PM10 > 0`).
 
 ```{r}
 tic()
@@ -40,7 +40,6 @@ toc()
 ```{r}
 aq
 nrow(aq) 
-table(aq$StationType, aq$StationArea)
 ```
 
 # Add Population Density Information
@@ -51,19 +50,20 @@ Extract population density values from SEDAC raster at each station location.
 pop = read_stars("supplementary/static/pop_density_original_epsg3035.tif")
 pop_ex = st_extract(pop[1], 
                     station_meta |> 
-                      st_as_sf(coords = c('Longitude', 'Latitude'), crs=st_crs(4326)) |> 
                       st_transform(st_crs(3035))) |> 
   st_drop_geometry() |> 
   setNames("Population")
 
-pop_stations = cbind(AirQualityStationEoICode = station_meta$AirQualityStationEoICode, pop_ex) 
+pop_stations = cbind(Air.Quality.Station.EoI.Code = station_meta$Air.Quality.Station.EoI.Code,
+                     Station.Type = station_meta$Station.Type,
+                     pop_ex) 
 ```
 
 Join based on station id.
 
 ```{r}
 tic()
-aq = left_join(aq, pop_stations, by = "AirQualityStationEoICode") |> 
+aq = left_join(aq, pop_stations, by = "Air.Quality.Station.EoI.Code") |> 
   filter(!is.na(Population))
 toc()
 ```
@@ -74,7 +74,7 @@ toc()
 Simple linear model to predict PM2.5 concentrations from PM10, population density, surface solar radiation and coordinates. Model includes interactions for station type (background vs traffic) but not for station area.
 
 ```{r}
-lm_pm2.5 = lm(PM2.5 ~ (PM10 + Population + SSR + Longitude + Latitude) * StationType , data = aq)
+lm_pm2.5 = lm(PM2.5 ~ (PM10 + Population + SSR + Longitude + Latitude) * Station.Type , data = aq)
 
 summary(lm_pm2.5)
 caret::RMSE(predict(lm_pm2.5), lm_pm2.5$model$PM2.5)
@@ -87,20 +87,36 @@ gc()
 
 # Prediction
 
-Map over each country and predict PM2.5 for gaps where PM10 is available by applying the above model. The function `fill_pm2.5_gaps()` further adds a column named "pseudo" that indicates whether a value was actually measured (0) or inferred through gapfilling (1), before writing to (parquet) file.
+Map over each country and predict PM2.5 for gaps where PM10 is available by applying the above model. The function `fill_pm2.5_gaps()` further adds a column named "pseudo" that indicates whether a value was actually measured (0) or inferred through gap-filling (1), before writing to (parquet) file.
 
 ```{r}
 countries = as.character(unique(station_meta$Countrycode)) |> sort()
-filled = purrr::map_vec(countries, fill_pm2.5_gaps, 
+out_dir = "AQ_data/03_hourly_gapfilled"
+filled = purrr::map_vec(countries, 
+                        fill_pm2.5_gaps, 
                         model = lm_pm2.5, 
                         population_table = pop_stations,
                         gap_data = "AQ_data/02_hourly_SSR",
-                        out_dir = "AQ_data/03_hourly_gapfilled")
+                        out_dir = out_dir, 
+                        overwrite = T,
+                        .progress = T)
 
 filled |> basename()
 ```
 
-```{r}
+# Results
 
+Structure of the gap-filled data:
+```{r}
+(res = open_dataset(out_dir))
+```
+
+
+How many missing PM2.5 values were filled? (`filled_PM2.5==1`)
+
+```{r}
+res |> 
+  count(filled_PM2.5) |> 
+  collect()
 ```
 
