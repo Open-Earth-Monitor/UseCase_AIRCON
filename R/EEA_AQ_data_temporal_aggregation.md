@@ -1,6 +1,6 @@
 # Temporal Aggregates for EEA AQ Station Data
 Johannes Heisig
-2024-07-16
+2024-07-17
 
 ## Setup
 
@@ -45,7 +45,7 @@ for all temporal resolutions.
 for (p in pollutants){
   m = pbmclapply(gapfilled, temporal_aggregation, p, cov_threshold = 0.75,
                  keep_validity = 1, keep_verification = c(1,2,3),
-                 overwrite = F, mc.cores = 8)
+                 overwrite = T, mc.cores = 8)
 }
 ```
 
@@ -58,7 +58,7 @@ Beside the mean, PM10 is aggregated using the 90.41th percentile
 pm = pbmclapply(gapfilled, temporal_aggregation, "PM10", 
                 perc = 0.9041, cov_threshold = 0.75,
                 keep_validity = 1, keep_verification = c(1,2,3),
-                overwrite = F, mc.cores = 8)
+                overwrite = T, mc.cores = 8)
 ```
 
 ## Ozone: 93.15th percentile of daily maxima of the 8 hour running mean
@@ -81,7 +81,7 @@ process.
 o3 = purrr::map(gapfilled, temporal_aggregation_running, "O3",
                 perc = 0.9315, cov_threshold = 0.75, 
                 keep_validity = 1, keep_verification = c(1,2,3),
-                overwrite = F)
+                overwrite = T)
 ```
 
     AD - AL - AT - BA - BE - BG - CH - CY - CZ - DE - DK - EE - ES - FI - FR - GB - GE - GR - HR - HU - IE - IS - IT - LT - LU - LV - ME - MK - MT - NL - NO - PL - PT - RO - RS - SE - SI - SK - TR - UA - XK - 
@@ -127,6 +127,9 @@ o3_annual_sf = o3_annual |>
   st_as_sf()
 ```
 
+See below the annual aggregates of O3 (maximum 8h running mean) from
+2015 to 2023 at all available measurement stations.
+
 ``` r
 library(ggplot2)
 
@@ -136,8 +139,8 @@ euro = giscoR::gisco_countries |>
   st_crop(o3_annual_sf)
 
 ggplot() +
-  geom_sf(aes(color=O3,  geometry = geometry), o3_annual_sf) +
-  geom_sf(fill="transparent",alpha = 0, color=1, data = euro) +
+  geom_sf(aes(color=O3,  geometry = geometry), size = 0.4, o3_annual_sf) +
+  geom_sf(fill="transparent", alpha = 0, color=1, data = euro) +
   scale_color_viridis_c(option = "B") +
   facet_wrap(~year)
 ```

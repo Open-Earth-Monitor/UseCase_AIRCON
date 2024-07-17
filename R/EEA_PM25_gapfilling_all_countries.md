@@ -1,6 +1,6 @@
 # Gapfilling of hourly PM2.5 data for all countries
 Johannes Heisig
-2024-07-15
+2024-07-17
 
 ``` r
 suppressPackageStartupMessages({
@@ -31,7 +31,7 @@ aq = filter(aq, PM2.5 <= pm2.5_99.9, PM10 <= pm10_99.9)
 toc()
 ```
 
-    23.25 sec elapsed
+    22.904 sec elapsed
 
 ``` r
 aq
@@ -40,16 +40,16 @@ aq
     # A tibble: 73,481,499 × 21
        Air.Quality.Station.EoI…¹ Countrycode Start                PM10 Validity_PM10
        <fct>                     <fct>       <dttm>              <dbl>         <dbl>
-     1 AD0942A                   AD          2023-01-01 02:00:00  27.7             1
-     2 AD0942A                   AD          2023-01-01 03:00:00  30.9             1
-     3 AD0942A                   AD          2023-01-01 04:00:00  22.4             1
-     4 AD0942A                   AD          2023-01-01 05:00:00  17.4             1
-     5 AD0942A                   AD          2023-01-01 06:00:00  17.1             1
-     6 AD0942A                   AD          2023-01-01 07:00:00  17.6             1
-     7 AD0942A                   AD          2023-01-01 08:00:00  22.5             1
-     8 AD0942A                   AD          2023-01-01 09:00:00  22.8             1
-     9 AD0942A                   AD          2023-01-01 10:00:00  25               1
-    10 AD0942A                   AD          2023-01-01 11:00:00  23.9             1
+     1 AD0942A                   AD          2021-01-01 02:00:00  13.5             1
+     2 AD0942A                   AD          2021-01-01 03:00:00  14.6             1
+     3 AD0942A                   AD          2021-01-01 04:00:00  12.8             1
+     4 AD0942A                   AD          2021-01-01 05:00:00   9.4             1
+     5 AD0942A                   AD          2021-01-01 06:00:00   6               1
+     6 AD0942A                   AD          2021-01-01 07:00:00   5.7             1
+     7 AD0942A                   AD          2021-01-01 08:00:00   5.3             1
+     8 AD0942A                   AD          2021-01-01 09:00:00   5               1
+     9 AD0942A                   AD          2021-01-01 10:00:00   4.8             1
+    10 AD0942A                   AD          2021-01-01 11:00:00   6.5             1
     # ℹ 73,481,489 more rows
     # ℹ abbreviated name: ¹​Air.Quality.Station.EoI.Code
     # ℹ 16 more variables: Verification_PM10 <dbl>, PM2.5 <dbl>,
@@ -91,7 +91,7 @@ aq = left_join(aq, pop_stations, by = "Air.Quality.Station.EoI.Code") |>
 toc()
 ```
 
-    11.886 sec elapsed
+    12.977 sec elapsed
 
 # Gapfilling Model (as proposed by Denby 2011 and Horalek et al. 2019)
 
@@ -208,7 +208,7 @@ filled = purrr::map_vec(countries,
 
     DE - 
 
-     ■■■■■■■■                          24% |  ETA:  8m
+     ■■■■■■■■                          24% |  ETA:  9m
 
     DK - 
 
@@ -216,39 +216,39 @@ filled = purrr::map_vec(countries,
 
     EE - 
 
-     ■■■■■■■■■■                        29% |  ETA:  7m
+     ■■■■■■■■■■                        29% |  ETA:  8m
 
     ES - 
 
-     ■■■■■■■■■■■                       32% |  ETA:  8m
+     ■■■■■■■■■■■                       32% |  ETA:  9m
 
     FI - 
 
-     ■■■■■■■■■■■                       34% |  ETA:  8m
+     ■■■■■■■■■■■                       34% |  ETA:  9m
 
     FR - 
 
-     ■■■■■■■■■■■■                      37% |  ETA:  8m
+     ■■■■■■■■■■■■                      37% |  ETA:  9m
 
     GB - 
 
-     ■■■■■■■■■■■■■                     39% |  ETA:  8m
+     ■■■■■■■■■■■■■                     39% |  ETA:  9m
 
     GE - 
 
-     ■■■■■■■■■■■■■                     41% |  ETA:  7m
+     ■■■■■■■■■■■■■                     41% |  ETA:  8m
 
     GR - 
 
-     ■■■■■■■■■■■■■■                    44% |  ETA:  7m
+     ■■■■■■■■■■■■■■                    44% |  ETA:  8m
 
     HR - 
 
-     ■■■■■■■■■■■■■■■                   46% |  ETA:  6m
+     ■■■■■■■■■■■■■■■                   46% |  ETA:  7m
 
     HU - 
 
-     ■■■■■■■■■■■■■■■■                  49% |  ETA:  6m
+     ■■■■■■■■■■■■■■■■                  49% |  ETA:  7m
 
     IE - 
 
@@ -256,15 +256,15 @@ filled = purrr::map_vec(countries,
 
     IS - 
 
-     ■■■■■■■■■■■■■■■■■                 54% |  ETA:  5m
+     ■■■■■■■■■■■■■■■■■                 54% |  ETA:  6m
 
     IT - 
 
-     ■■■■■■■■■■■■■■■■■■                56% |  ETA:  5m
+     ■■■■■■■■■■■■■■■■■■                56% |  ETA:  6m
 
     LT - 
 
-     ■■■■■■■■■■■■■■■■■■■               59% |  ETA:  5m
+     ■■■■■■■■■■■■■■■■■■■               59% |  ETA:  6m
 
     LU - 
 
@@ -272,7 +272,7 @@ filled = purrr::map_vec(countries,
 
     LV - 
 
-     ■■■■■■■■■■■■■■■■■■■■              63% |  ETA:  4m
+     ■■■■■■■■■■■■■■■■■■■■              63% |  ETA:  5m
 
     ME - 
 
@@ -284,7 +284,7 @@ filled = purrr::map_vec(countries,
 
     MT - 
 
-     ■■■■■■■■■■■■■■■■■■■■■■            71% |  ETA:  3m
+     ■■■■■■■■■■■■■■■■■■■■■■            71% |  ETA:  4m
 
     NL - 
 
@@ -296,7 +296,7 @@ filled = purrr::map_vec(countries,
 
     PL - 
 
-     ■■■■■■■■■■■■■■■■■■■■■■■■          78% |  ETA:  2m
+     ■■■■■■■■■■■■■■■■■■■■■■■■          78% |  ETA:  3m
 
     PT - 
 
@@ -312,7 +312,7 @@ filled = purrr::map_vec(countries,
 
     SE - 
 
-     ■■■■■■■■■■■■■■■■■■■■■■■■■■■       88% |  ETA:  1m
+     ■■■■■■■■■■■■■■■■■■■■■■■■■■■       88% |  ETA:  2m
 
     SI - 
 
@@ -320,15 +320,15 @@ filled = purrr::map_vec(countries,
 
     SK - 
 
-     ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■     93% |  ETA: 47s
+     ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■     93% |  ETA:  1m
 
     TR - 
 
-     ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■    95% |  ETA: 32s
+     ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■    95% |  ETA: 36s
 
     UA - 
 
-     ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■    98% |  ETA: 16s
+     ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■    98% |  ETA: 18s
 
     XK - 
 
@@ -377,7 +377,7 @@ Structure of the gap-filled data:
     PM2.5: double
     Validity_PM2.5: double
     Verification_PM2.5: double
-    filled_PM2.5: double
+    filled_PM2.5: bool
     O3: double
     Validity_O3: int32
     Verification_O3: int32
@@ -398,6 +398,6 @@ res |>
 
     # A tibble: 2 × 2
       filled_PM2.5         n
-             <dbl>     <int>
-    1            1  85006232
-    2            0 218020367
+      <lgl>            <int>
+    1 TRUE          85006232
+    2 FALSE        218020367
