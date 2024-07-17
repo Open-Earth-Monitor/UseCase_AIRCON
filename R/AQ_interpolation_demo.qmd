@@ -1,5 +1,5 @@
 ---
-title: "AQ Gapfilling"
+title: "AQ Interpolation and Map Merging"
 author: "Johannes Heisig"
 date: "`r Sys.Date()`"
 format: gfm

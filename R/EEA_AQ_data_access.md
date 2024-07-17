@@ -1,6 +1,6 @@
 # Download EEA AQ Station Data
 Johannes Heisig
-2024-07-03
+2024-07-17
 
 In this notebook we show how to access, download, and pre-process
 European air quality data. The EEA recently switched to storing its
@@ -40,12 +40,12 @@ Let’s download verified air quality data for 2 countries and 4
 pollutants of interest:
 
 - Countries: Ireland, Luxembourg
-- Pollutants: NO2, O3, PM10, PM2.5
+- Pollutants: SO2, NO2, O3, PM10, PM2.5
 - Datasets: E1a, E2a
 
 ``` r
 countries = c("IE","LU")
-pollutants = c(7, 8, 5, 6001)
+pollutants = c(1, 7, 8, 5, 6001)
 datasets = c(1,2)
 dl_dir = "tests/download"
 
@@ -71,6 +71,7 @@ library(arrow)
 ```
 
     FileSystemDataset with 750 Parquet files
+    12 columns
     Samplingpoint: string
     Pollutant: int32
     Start: timestamp[ns] not null
@@ -116,7 +117,7 @@ preprocess_station_data(dir = dl_dir,
                         out_dir = prep_dir, 
                         station_meta = station_meta, 
                         keep_validity = 1, 
-                        keep_verification = c(1,2))
+                        keep_verification = c(1,2,3))
 ```
 
     IE - LU - 

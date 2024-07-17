@@ -4,7 +4,7 @@ output: github_document
 
 # OEMC Use Case 23: Air Quality Monitoring at Continental Scale
 
-The goal is to create annual, monthly, daily, and potentially hourly maps of four key air quality indicators (NO2, O3, PM10, PM2.5). Hourly data from about 6,000 EEA measurement stations throughout the EU serves as basis for interpolation. Supplementary variables such as population density, land cover, climatology are further inputs to a universal Kriging method.
+The goal is to create annual, monthly, daily, and potentially hourly maps of four key air quality indicators (NO2, O3, SO2, PM10, PM2.5). Hourly data from about 7,000 EEA measurement stations throughout the EU serves as basis for interpolation. Supplementary variables such as population density, land cover, climatology are further inputs to a universal Kriging method.
 
 # ToDo
 
@@ -13,24 +13,24 @@ The goal is to create annual, monthly, daily, and potentially hourly maps of fou
 -   [x] write download functions
 -   [x] write function to filter by quality flags
 -   [x] write function to filter for rural/urban/suburban & background/traffic
-    -   *include traffic or not? different approaches in the reports*
--   [x] write function to join pollutant tables and station meta data
+-   [x] write function to join pollutant tables by country
 -   [x] download station data for all countries (2015-2023)
 -   [x] preprocess all station data
 
-## Gapfill PM2.5 using PM10 observations
-
-predictors:
+## Gapfill hourly PM2.5
 
 -   [x] gapfill all PM2.5 with predictors according to EEA
-  -   coordinates
-  -   population density
-  -   sun shine duration
-      -   ERA5 alternative: [`surface_net_solar_radiation`](https://codes.ecmwf.int/grib/param-db/?id=176)
+    -   PM10
+    -   coordinates
+    -   population density
+    -   sun shine duration
+    -   ERA5 alternative: [`surface_net_solar_radiation`](https://codes.ecmwf.int/grib/param-db/?id=176)
 
 ## Temporal aggregates (annual, monthly, daily)
--   [x] NO2 (mean)
--   [x] PM 2.5 (mean)
+
+-   [x] NO2 mean
+-   [x] SO2 mean
+-   [x] PM2.5 mean
 -   [x] PM10
     -   [x] mean
     -   [x] 90.4 percentile of daily mean
@@ -66,42 +66,40 @@ predictors:
     -   [x] download
     -   [x] calculate wind speed/direction & humidity
     -   temporal aggregates (daily, monthly, annual)
-          - [x] mean
-          - [x] percentiles
-        
+        -   [x] mean
+        -   [x] percentiles
 -   Sentinel-5P TROPOMI (daily)
-      -   [ ] annual
-      -   [ ] monthly
-      -   [ ] daily
+    -   [ ] annual
+    -   [ ] monthly
+    -   [ ] daily
 
 ## Interpolation
 
-- [x] function to read aq data
-- [x] function to read and warp covariates to a common grid
-- [x] function wrapping lm
-- [x] function for residual kriging in parallel
+-   [x] function to read aq data
+-   [x] function to read and warp covariates to a common grid
+-   [x] function wrapping lm
+-   [x] function for residual kriging in parallel
 
 create 3 separate map layers based on...
 
-  - rural background stations
-  - urban/suburban background stations
-  - urban/suburban traffic station
-  
-- [ ] run interpolation test for one annual datasets (2015-2023)
+-   rural background stations
+-   urban/suburban background stations
+-   urban/suburban traffic station
 
+-   [ ] run interpolation test for one annual datasets (2015-2023)
 
-## Merging
+## Map merging
 
-- [x] rasterize GRIP road data (area impacted by traffic)
-    - [x] buffer and rasterize GRIP vector data for road classes 1-3
-    - [x] distance to nearest road (by type)
-- [ ] function to merge the 3 map layers
+-   [x] rasterize GRIP road data (area impacted by traffic)
+    -   [x] buffer and rasterize GRIP vector data for road classes 1-3
+    -   [x] distance to nearest road (by type)
+-   [x] function to merge the 3 map layers
 
-## Potential Improvements to the Current Method
+## Potential improvements to the current method
 
-- interpolation using
-  - [ ] standard Random Forest
-  - [ ] Random Forest with awareness for spatial correlation ([RF-GLS](https://github.com/ArkajyotiSaha/RandomForestsGLS))
+-   interpolation using
+    -   [ ] standard Random Forest
+    -   [ ] Random Forest with awareness for spatial correlation ([RF-GLS](https://github.com/ArkajyotiSaha/RandomForestsGLS))
 
 # Codeflow
 

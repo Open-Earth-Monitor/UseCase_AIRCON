@@ -81,7 +81,7 @@ preprocess_station_data(dir = dl_dir,
                         out_dir = prep_dir, 
                         station_meta = station_meta, 
                         keep_validity = 1, 
-                        keep_verification = c(1,2))
+                        keep_verification = c(1,2,3))
 ```
 
 `preprocess_station_data()` works on all stations from one country at a time, so we get one Parquet file per country as output. See below the new structure of our data and the list of countries we processed.
