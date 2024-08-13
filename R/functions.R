@@ -200,7 +200,7 @@ preprocess_station_data = function(dir = "download", out_dir = "01_hourly", stat
 
 
 add_meta = function(pollutant){
-  if (!any(c("Countrycode","StationType","StationArea",
+  if (!any(c("Countrycode","Station.Type","Station.Area",
              "Longitude","Latitude") %in% names(pollutant))){
     meta_data = arrow::read_parquet("AQ_stations/EEA_stations_meta_table.parquet")
     by = "Air.Quality.Station.EoI.Code"
@@ -740,7 +740,7 @@ s5p_daily_mosaic = function(d, wdf, outdir, delete_src = F){
 
 load_aq = function(poll, stat, y, m=0, d=0, sf = T, verbose = T){
   if (!any(m==0, d==0)) stop("Supply only either m (month, 1-12) or d (day of year; 1-365).")
-  if (!poll %in% c("PM10","PM2.5","O3","NO2")) stop("Select one of PM10, PM2.5, O3, NO2.")
+  if (!poll %in% c("PM10","PM2.5","O3","NO2", "SO2")) stop("Select one of PM10, PM2.5, O3, NO2, SO2.")
   if (!stat %in% c("perc", "mean")) stop("Select one of mean or perc.")
   dir = file.path("AQ_data", ifelse(m == 0 & d == 0, "06_annual", ifelse(d == 0, "05_monthly", "04_daily")))
   
@@ -760,7 +760,7 @@ load_aq = function(poll, stat, y, m=0, d=0, sf = T, verbose = T){
     stopifnot(length(dir)==1)
     x = arrow::open_dataset(dir) |> dplyr::filter(year == y)
   }
-  x = dplyr::collect(x) #|> add_meta()
+  x = dplyr::collect(x) |> add_meta()
   if (sf) x = sf::st_as_sf(x, coords=c("Longitude", "Latitude"), crs = sf::st_crs(4326), remove = F) |> 
     sf::st_transform(sf::st_crs(3035))
   attr(x, "stat") = stat
@@ -771,73 +771,110 @@ load_aq = function(poll, stat, y, m=0, d=0, sf = T, verbose = T){
   return(x)
 }
 
-get_filename = function(dir, var, y, perc = NULL,
+get_filename = function(tdir, varname, y, perc = NULL,
                         base.dir = "supplementary"){
-  list.files(file.path(base.dir, dir), 
-             pattern = glob2rx(paste0(tolower(var), "*",perc, "*", y, ".nc")), 
-             full.names = T)
+  varname = sub("\\.", "p", varname)
+  list.files(file.path(base.dir, tdir), 
+             pattern = glob2rx(paste0(tolower(varname), "*",perc, "*", y, ".nc")), 
+             full.names = T)[1]
 }
 
-read_n_warp = function(x, lyr, name, target, target_dims = NULL, 
-                       parallel=1, method="bilinear"){
-  x = terra::rast(x, lyrs = lyr)
-  terra::time(x) = NULL
-  if (class(target)=="character") target = terra::rast(target)
-  if (is.null(target_dims)) target_dims = stars::st_as_stars(target) |> stars::st_dimensions()
-  x = terra::project(x, target, threads=parallel) |> 
-    terra::resample(target, method = method, threads=parallel) |> 
-    stars::st_as_stars() |> 
-    setNames(name)
-  stars::st_dimensions(x) = target_dims
+warp_to_target = function(x, target, name, method="bilinear", mask = F, stars = F){
+  x = terra::project(x, target, threads=T) |> 
+    terra::resample(target, method = method, threads=T)
+  target_dims = stars::st_as_stars(target) |> stars::st_dimensions()
+  if (mask) x = terra::mask(x, target)
+  if (stars) {
+    x = stars::st_as_stars(x) |> setNames(name)
+    stars::st_dimensions(x) = target_dims
+  }
   return(x)
 }
 
-load_covariates_EEA = function(x, spatial_ext = NULL, ...){
-  pn = c("PM2.5", "PM10", "NO2", "O3")
-  poll = pn[which(pn %in% names(x))]
+read_n_warp = function(x, lyr, target, ...){
+  x = terra::rast(x, lyrs = lyr)
+  terra::time(x) = NULL
+  if (class(target)=="character") target = terra::rast(target)
+  warp_to_target(x, target, ...)
+}
+
+load_covariates_EEA = function(x, spatial_ext = NULL){
+  poll = find_poll(x)
+  reso = ifelse(poll=="O3", 10, 1)
   stat = attr(x, "stat")
+  perc = switch(stat,
+                "perc" = "perc",
+                NULL)
+  
   y = attr(x, "y")
   m = attr(x, "m")
   d = attr(x, "d")
-  dir = ifelse(d > 0, "01_daily", ifelse(m > 0, "02_monthly", "03_annual"))
+  tdir = ifelse(d > 0, "01_daily", ifelse(m > 0, "02_monthly", "03_annual"))
   lyr = ifelse(d > 0, d, ifelse(m > 0, m, y))
   dtime = paste("year =", y, ifelse(m > 0, paste("month =", m), paste("doy =", d)))
+  terra::terraOptions(progress=0)
   
-  # static
-  clc = terra::rast("supplementary/static/CLC_reclass_8_1km.tif")
-  dtm = terra::rast("supplementary/static/COP-DEM/COP_DEM_Europe_1km_epsg3035.tif")
+  # static (target grid)
+  dtm = terra::rast(paste0("supplementary/static/COP-DEM/COP_DEM_Europe_",reso,"km_mask_epsg3035.tif"))
   
+  # set spatial extent
   if (!is.null(spatial_ext)){
-    clc = terra::crop(clc, spatial_ext)
     dtm = terra::crop(dtm, spatial_ext)
   }
-    
-  dtm = stars::st_as_stars(dtm) |> setNames("Elevation")
-  clc_st = stars::st_as_stars(clc) |> setNames("CLC") |> 
-    dplyr::mutate(
-      CLC = factor(CLC, levels = 1:8, 
-                   labels = c("HDR", "LDR", "IND","TRAF",
-                              "UGR","AGR","NAT","OTH")))
-  dims = stars::st_dimensions(clc_st)
-  
-  # measurement-level
+  # measurement-level (needed by all pollutants)
   cams_name = paste0("CAMS_", poll)
-  cams = read_n_warp(get_filename(dir, poll, y, perc = ifelse(stat == "perc", "perc", NULL)), lyr,
-                     name = cams_name, target = clc, target_dims = dims, ...)
-  ws = read_n_warp(get_filename(dir, "wind_speed", y), lyr,
-                   name = "WindSpeed", target = clc, target_dims = dims, ...)
-
-  l = switch(
-    poll, 
-    "PM10" = list(log(cams) |> setNames(paste0("log_", cams_name)), ws, clc_st, dtm,
-                  read_n_warp(get_filename(dir, "rel_humidity", y), lyr,
-                              name = "RelHumidity", target = clc, target_dims = dims, ...)), 
-    "PM2.5" = list(log(cams) |> setNames(paste0("log_", cams_name)), ws, clc_st, dtm),
-    "O3" = list(cams, ws, clc_st, dtm,
-                read_n_warp(get_filename(dir, "solar_radiation", y), lyr,
-                            name = "SolarRadiation", target = clc, target_dims = dims, ...)))
-  # "NO2 = ...
+  cams = read_n_warp(get_filename(tdir, poll, y, perc), lyr,
+                     name = cams_name, target = dtm, mask=T, stars=T)
+  ws = read_n_warp(get_filename(tdir, "wind_speed", y), lyr,
+                   name = "WindSpeed", target = dtm, mask=T, stars=T)
   
+  # measurement-level (individual for each pollutant)
+  l = switch(poll, 
+    "PM10" = list(log(cams) |> setNames(paste0("log_", cams_name)), ws, 
+                  stars::st_as_stars(dtm) |> setNames("Elevation"),
+                  warp_to_target(
+                    target = dtm, mask=T, stars=T, name = "CLC_NAT_1km",
+                    x = terra::rast("supplementary/static/clc/CLC_NAT_percent_1km.tif")),
+                  read_n_warp(get_filename(tdir, "rel_humidity", y), lyr, name = "RelHumidity", 
+                              target = dtm, mask=T, stars=T)), 
+    
+    "PM2.5" = list(log(cams) |> setNames(paste0("log_", cams_name)), ws, 
+                   stars::st_as_stars(dtm) |> setNames("Elevation"),
+                   warp_to_target(
+                     target = dtm, mask=T, stars=T, name = "CLC_NAT_1km",
+                     x = terra::rast("supplementary/static/clc/CLC_NAT_percent_1km.tif"))),
+    
+    "O3" = list(cams, ws, stars::st_as_stars(dtm) |> setNames("Elevation"),
+                read_n_warp(get_filename(tdir, "solar_radiation", y), lyr,
+                            name = "SolarRadiation", target = dtm, mask=T, stars=T)),
+    
+    "NO2" = list(cams, ws, stars::st_as_stars(dtm) |> setNames("Elevation"),
+                 warp_to_target(target = dtm, mask=T, stars=T, name = "Elevation_5km_radius",
+                   x = terra::rast("supplementary/static/COP-DEM/COP_DEM_Europe_5km_radius_mean_1km_epsg3035.tif")),
+                 # TROPOMI ???
+                 warp_to_target(target = dtm, mask=T, stars=T, name = "PopulationDensity",
+                                x = terra::rast("supplementary/static/pop_density_1km_epsg3035.tif")),
+                 warp_to_target(
+                   target = dtm, mask=T, stars=T, name = "CLC_NAT_1km",
+                   x = terra::rast("supplementary/static/clc/CLC_NAT_percent_1km.tif")),
+                 warp_to_target(
+                   target = dtm, mask=T, stars=T, name = "CLC_AGR_1km",
+                   x = terra::rast("supplementary/static/clc/CLC_AGR_percent_1km.tif")),
+                 warp_to_target(
+                   target = dtm, mask=T, stars=T, name = "CLC_TRAF_1km",
+                   x = terra::rast("supplementary/static/clc/CLC_TRAF_percent_1km.tif")),
+                 warp_to_target(
+                   target = dtm, mask=T, stars=T, name = "CLC_NAT_5km_radius",
+                   x = terra::rast("supplementary/static/clc/CLC_NAT_percent_5km_radius_1km.tif")),
+                 warp_to_target(
+                   target = dtm, mask=T, stars=T, name = "CLC_LDR_5km_radius",
+                   x = terra::rast("supplementary/static/clc/CLC_LDR_percent_5km_radius_1km.tif")),
+                 warp_to_target(
+                   target = dtm, mask=T, stars=T, name = "CLC_HDR_5km_radius",
+                   x = terra::rast("supplementary/static/clc/CLC_HDR_percent_5km_radius_1km.tif")))
+  )
+  
+  terra::terraOptions(progress=3)
   strs = do.call(c, l)
   attr(strs, "pollutant") <- poll
   attr(strs, "stat") <- stat
@@ -848,17 +885,52 @@ load_covariates_EEA = function(x, spatial_ext = NULL, ...){
   return(strs)
 }
 
-filter_area_type = function(aq, area_type = "RB"){
-  if (!area_type %in% c("RB", "UB", "UT")) stop("area_type should be one of c(RB, UB, UT)!")
-  
-  aq = switch(area_type,
-         "RB" = dplyr::filter(aq, StationType == "background", StationArea == "rural"), 
-         "UB" = dplyr::filter(aq, StationType == "background", StationArea %in% c("urban", "suburban")), 
-         "UT" = dplyr::filter(aq, StationType == "traffic", StationArea %in% c("urban", "suburban"))) |>
-    na.omit() |> 
-    dplyr::select(-c(Countrycode, StationType, StationArea))
-  attr(aq, "area_type") <- area_type
-  return(aq)
+filter_area_type = function(x, area_type = "RB"){
+  if (!area_type %in% c("RB", "UB", "UT", "JB")) stop("area_type should be one of c(RB, UB, UT, JB)!")
+  if ("data.frame" %in% class(x)){
+    x = switch(area_type,
+               "RB" = dplyr::filter(x, Station.Type == "background", Station.Area == "rural"), 
+               "UB" = dplyr::filter(x, Station.Type == "background", Station.Area %in% c("urban", "suburban")), 
+               "UT" = dplyr::filter(x, Station.Type == "traffic", Station.Area %in% c("urban", "suburban")),
+               "JB" = dplyr::filter(x, Station.Type == "background", Station.Area %in% c("rural", "urban", "suburban"))
+    ) |>
+      na.omit() |> 
+      dplyr::select(-c(Countrycode, Station.Type, Station.Area))
+    
+  } else if ("stars" %in% class(x)){
+    lookup = list("PM10" = list("RB" = c("log_CAMS_PM10", "Elevation", "WindSpeed", "RelHumidity", "CLC_NAT_1km"),
+                                "UB" = c("log_CAMS_PM10"), 
+                                "UT" = c("log_CAMS_PM10", "WindSpeed"), 
+                                "JB" = c("log_CAMS_PM10", "Elevation", "WindSpeed", "RelHumidity", "CLC_NAT_1km")), 
+                  "PM2.5"= list("RB" = c("log_CAMS_PM2.5", "Elevation", "WindSpeed","CLC_NAT_1km"),
+                                "UB" = c("log_CAMS_PM2.5"), 
+                                "UT" = c("log_CAMS_PM2.5"), 
+                                "JB" = c("log_CAMS_PM2.5", "Elevation", "WindSpeed","CLC_NAT_1km")),
+                  "O3"= list("RB" = c("CAMS_O3", "Elevation", "SolarRadiation"),
+                             "UB" = c("CAMS_O3", "WindSpeed", "SolarRadiation"), 
+                             "JB" = c("CAMS_O3", "Elevation", "WindSpeed", "SolarRadiation")), 
+                  "NO2"= list("RB" = c("CAMS_NO2", "Elevation", "Elevation_5km_radius", "WindSpeed", #"TROPOMI"
+                                       "PopulationDensity", 
+                                       "CLC_NAT_5km_radius","CLC_LDR_5km_radius"),
+                              "UB" = c("CAMS_NO2", "WindSpeed", #"TROPOMI"
+                                       "PopulationDensity", "CLC_NAT_1km","CLC_AGR_1km","CLC_TRAF_1km",
+                                       "CLC_LDR_5km_radius","CLC_HDR_5km_radius"), 
+                              "UT" = c("CAMS_NO2", "Elevation", "Elevation_5km_radius", "WindSpeed", #"TROPOMI"
+                                       "CLC_LDR_5km_radius","CLC_HDR_5km_radius"), 
+                              "JB" = c("CAMS_NO2", "Elevation", "Elevation_5km_radius", "WindSpeed", #"TROPOMI"
+                                       "PopulationDensity", "CLC_NAT_1km","CLC_AGR_1km","CLC_TRAF_1km",
+                                       "CLC_NAT_5km_radius","CLC_LDR_5km_radius","CLC_HDR_5km_radius")))
+    aq_attrs = attributes(x)
+    poll = attr(x, "pollutant")
+    predictor_set = c(lookup[[poll]][[area_type]])
+    x = x[predictor_set]
+    
+    attributes(x)[c("pollutant", "stat", 
+                    "dtime", "y", "m", "d")] = aq_attrs[c("pollutant", "stat", 
+                                                          "dtime", "y", "m", "d")]
+  }
+  attr(x, "area_type") <- area_type
+  return(x)
 }
 
 # spatial AND temporal cov
@@ -876,28 +948,41 @@ filter_st_coverage = function(aq, covariates, cov_threshold = 0.75){
 linear_aq_model = function(aq, covariates){
   
   if (!all(any(class(aq)=="sf"), class(covariates)=="stars")) stop("Please supply an sf-object (aq) and the corresponding covariates as stars-object.")
-  #if (! identical(sf::st_crs(aq), sf::st_crs(covariates))) stop("CRSs of aq and covariates do not match!")
   
   poll = find_poll(aq)
-
+  
   aq_ext = stars::st_extract(covariates, aq) 
   aq_join = sf::st_join(dplyr::select(aq, 1:{{poll}}), aq_ext) |> 
-    #tidyr::drop_na() |> 
     unique()
   
-  target = ifelse(poll %in% c("PM2.5", "PM10"), paste0("log(", poll, ")"), poll) # log transform for PM
+  log_required = poll %in% c("PM2.5", "PM10")
+  target = ifelse(log_required, paste0("log(", poll, ")"), poll) # log transform for PM
   
-  frm = as.formula(paste(target, "~", paste(names(aq_cov), collapse = "+")))
+  frm = as.formula(paste(target, "~", paste(names(covariates), collapse = "+")))
   l = lm(frm, aq_join)
   attr(l, "formula") = frm
-  attr(l, "log_transformed") = ifelse(poll %in% c("PM2.5", "PM10"), T, F)       # log transform for PM
+  attr(l, "log_transformed") = log_required       # log transform for PM
   return(l)
 }
 
 lm_measures = function(l){
   rmse = caret::RMSE(l$model[,1] |> as.vector(),l$fitted.values) |> round(3)
   r2 = caret::R2(l$model[,1] |> as.vector(),l$fitted.values) |> round(3)
-  return(list(RMSE = rmse, R2 = r2))
+  return(list(lm_rmse = rmse, lm_r2 = r2))
+}
+
+cv_measures = function(cv_type, pred, val){
+  cv = cbind(pred, val) |> na.omit()
+  p_mean = mean(cv[,2], na.rm = T)
+  rmse = caret::RMSE(cv[,1],cv[,2])
+  c(
+    "cv_type" = cv_type,
+    "n" = nrow(cv),
+    "poll_mean" = round(p_mean, 3),
+    "r2" = round(caret::R2(cv[,1], cv[,2]), 3),
+    "rmse" = round(rmse, 3),
+    "r_rmse" = round((rmse / p_mean) *100, 3),
+    "mpe" = round(sum(cv[,2] - cv[,1]) / nrow(cv), 3))
 }
 
 mask_missing_CLC = function(covariates, lm){
@@ -930,6 +1015,9 @@ krige_aq_residuals = function(aq, covariates, lm, n.max = Inf, cluster = NULL,
   aq = cbind(aq, lm$model[,2:ncol(lm$model)])
   aq$res = lm$residuals
   
+  # mask irrelevant pixels
+  covariates[is.na(covariates["CLC"])] = NA
+  
   # variogram
   vario = automap::autofitVariogram(res~1, aq)
   if (show.vario){
@@ -944,29 +1032,152 @@ krige_aq_residuals = function(aq, covariates, lm, n.max = Inf, cluster = NULL,
   } else {
     if (verbose) message("Kriging residuals in parallel using ", n.cores, " cores.")
     
-    # set up cluster and data
+    # export variables to cluster
     e = new.env()
     e$aq = aq; e$vr_m = vr_m; e$n.max = n.max
     parallel::clusterExport(cluster, list("aq", "vr_m", "n.max"), envir = e)
     
-    # split prediction locations:
+    # split prediction locations into equal numbers of non-NA values:
     if (verbose) message("Splitting new data.")
+    n_cols = dim(covariates)[1]
     n_rows = dim(covariates)[2]
-    splt = rep(1:n.cores, each = ceiling(n_rows/n.cores), length.out = n_rows)
-    newdlst = lapply(as.list(1:n.cores), function(w) covariates[,,which(splt == w)])
+    
+    #splt = rep(1:n.cores, each = ceiling(n_rows/n.cores), length.out = n_rows)
+    #newdlst = lapply(as.list(1:n.cores), function(w) covariates[,,which(splt == w)])
+    
+    dat.i = which(!is.na(covariates$lm_pred))
+    splt = seq(1,length(dat.i), length.out = n.cores+1) |> ceiling()
+    row.ids = (dat.i[splt] / n_cols) |> ceiling()
+    row.ids[1] = 0; row.ids[length(row.ids)] = n_rows
+    
+    newdlst = lapply(as.list(1:n.cores), 
+                     function(i){
+                       from = row.ids[i] + 1
+                       to = row.ids[i+1]
+                       covariates[,,from:to]
+                     } )
     
     # run
     if (verbose) message("Kriging interpolation.")
     tictoc::tic()
-    krige_lst = parallel::parLapply(cluster, newdlst, function(lst) gstat::krige(res~1, aq, lst, vr_m, nmax = n.max))
-
+    krige_lst = parallel::parLapplyLB(
+      cluster, newdlst, 
+      function(lst) gstat::krige(res~1, aq, lst, vr_m, nmax = n.max), 
+      chunk.size = 1)
     t = tictoc::toc(quiet = T)
+    
+    # finish up
+    k = merge_stars_list(krige_lst)
     if (verbose) message("Completed.  ", t$callback_msg)
     gc(verbose = F)
-    k = merge_stars_list(krige_lst)
   }
     attr(k, "area_type") <- area_type
     return(k)
+}
+
+krige_aq_residuals_2 = function(x, covariates, lm, n.max = Inf, cluster = NULL, 
+                                cv = T, show.vario = F, verbose = F){
+  tictoc::tic()
+  pollutant = attr(covariates, "pollutant")
+  area_type = attr(x, "area_type")
+  if (!is.null(attr(lm$model, "na.action"))) x = x[-attr(lm$model, "na.action"),]
+  
+  # log if 
+  # if (attr(lm, "log_transformed")){
+  #   log_name = paste0()
+  #   dplyr::mutate(aq, {{pollutant}} := log(.[pollutant]))
+  # }
+  
+  train.dat = lm$model[,2:ncol(lm$model)] |> 
+    as.data.frame() |> 
+    setNames(names(lm$model)[2:ncol(lm$model)])
+  
+  x = cbind(x, train.dat)
+  x$res = lm$residuals
+  
+  # variogram
+  vario = automap::autofitVariogram(res~1, x)
+  if (show.vario){
+    print(vario)
+    print(plot(vario))
+  } 
+  vr_m = vario$var_model
+  vario_metrics = c(nugget = round(vr_m$psill[1]), 
+                    sill = round(vr_m$psill[1] + vr_m$psill[2]),
+                    range = round(vr_m$range[2]/1000))
+  cv_msrs = c(NA,NA)
+  
+  if (is.null(cluster)){ 
+    k = gstat::krige(res~1, x, covariates, vr_m, nmax = n.max)
+  } else {
+    n.cores = length(cluster)
+    if (verbose) message("Kriging residuals in parallel using ", n.cores, " cores.")
+    
+    # export variables to cluster
+    frm = Reduce(paste, deparse(attr(lm, "formula")))
+    e = new.env()
+    e$x = x; e$vr_m = vr_m; e$n.max = n.max; e$frm = frm
+    parallel::clusterExport(cluster, list("x", "vr_m", "n.max", "frm"), envir = e)
+    
+
+    # split prediction locations into chunks with equal numbers of non-NA values:
+    if (verbose) message("Splitting new data.")
+    n_cols = dim(covariates)[1]
+    n_rows = dim(covariates)[2]
+    
+    dat.i = which(!is.na(covariates$lm_pred))
+    splt = seq(1,length(dat.i), length.out = n.cores+1) |> ceiling()
+    row.ids = (dat.i[splt] / n_cols) |> ceiling()
+    row.ids[1] = 0; row.ids[length(row.ids)] = n_rows
+    
+    newdlst = lapply(as.list(1:n.cores), 
+                     function(i){
+                       from = row.ids[i] + 1
+                       to = row.ids[i+1]
+                       covariates[,,from:to]})
+    # LOO-CV
+    if (cv){
+      if (verbose) message("LOO cross validation.")
+      
+      loo_pred = parallel::parSapply(cl, 1:nrow(x), loo_cv, 
+                                     pts = x, frm = frm, v = vr_m)
+      if (attr(lm, "log_transformed")) loo_pred = exp(loo_pred)
+      
+      cv_msrs = cv_measures("loo", loo_pred, dplyr::pull(x, pollutant))
+    }
+    
+    # run kriging
+    if (verbose) message("Kriging interpolation.")
+    krige_lst = parallel::parLapplyLB(
+      cluster, newdlst, 
+      function(lst) gstat::krige(res~1, x, lst, vr_m, nmax = n.max), 
+      chunk.size = 1)
+    k = merge_stars_list(krige_lst)
+    
+    # finish up
+    t = tictoc::toc(quiet = T)
+    if (verbose) message("Completed.  ", t$callback_msg)
+    gc(verbose = F)
+    attr(k, "loo_cv") <- cv_msrs
+    attr(k, "vario_metrics") <- vario_metrics
+  }
+  attr(k, "area_type") <- area_type
+  return(k)
+}
+
+loo_cv = function(i, pts, frm, v){
+  
+  # leave one out
+  a = pts[-i,]
+  
+  # linear prediction part
+  l = lm(as.formula(frm), a)
+  p = predict(l, pts[i,])
+  
+  # kriging part
+  a$res = l$residuals
+  k = gstat::krige(res~1, a, pts[i,], v, debug.level=0) |> as.data.frame()
+  return(p + k$var1.pred)
 }
 
 combine_results = function(covariates, kriging, trim_range = NULL){
@@ -979,15 +1190,18 @@ combine_results = function(covariates, kriging, trim_range = NULL){
     res$lm_pred = ifelse(res$lm_pred > trim_range[2], trim_range[2], res$lm_pred)
   }
   res$residuals = kriging$var1.pred
-  res$aq_interpolated = res$lm_pred + res$residuals
+  res$aq_pred = res$lm_pred + res$residuals
+  
+  res$pred_se = sqrt(kriging$var1.var + (covariates$se ** 2))
+  
   aq_attrs = attributes(covariates)
   attributes(res)[c("pollutant", "stat", "dtime")] = aq_attrs[c("pollutant", "stat", "dtime")]
   attr(res, "area_type") <- attr(kriging, "area_type")
   return(res)
 }
 
-plot_aq_interpolation = function(x, pollutant = NULL, stat=NULL, dtime=NULL, 
-                                 area_type=NULL, layer = "aq_interpolated", 
+plot_aq_prediction = function(x, pollutant = NULL, stat=NULL, dtime=NULL, 
+                                 area_type=NULL, layer = "aq_pred", 
                                  countries = T, ...){
   if (is.null(pollutant)) pollutant = attr(x, "pollutant")
   if (is.null(stat)) stat = attr(x, "stat")
@@ -1005,47 +1219,139 @@ plot_aq_interpolation = function(x, pollutant = NULL, stat=NULL, dtime=NULL,
                     "NO2" = c(0, 10, 20, 30, 40, 45, 100))
   }
   
-  max_val = x |> dplyr::pull() |> max(na.rm = T)
-  if (max_val > max(breaks)) breaks[length(breaks)] = max_val
+  max_val = dplyr::pull(x, layer) |> max(na.rm = T)
+  if (max_val > max(breaks)) breaks[length(breaks)] = max_val+.1
   
   cols = c("darkgreen", "forestgreen", "yellow2", "orange", "red", "darkred")
-  titl = paste(pollutant, stat, dtime, area_type)
-  plot(x[layer], col=cols, breaks = breaks, 
-       main = titl, key.pos=1, reset=!countries, ...)
-  
+  titl = paste(pollutant, stat, "Prediction", dtime, area_type)
+  suppressMessages({
+    plot(x[layer], col=cols, breaks = breaks, 
+         main = titl, key.pos=1, reset=!countries, ...)
+  })
   if (countries) plot(giscoR::gisco_countries$geometry |> 
                         sf::st_transform(sf::st_crs(x)), add=T)
 }
 
-apply_aq_weights = function(x, ...){
-  m = all(is.na(x[1]), is.na(x[2]), is.na(x[3]))  # create mask only from predictions
-  c_rb = prod(1 - x[5], x[1], ...)                # weighted RB
-  c_ub = prod(x[5], 1 - x[4], x[2], ...)          # weighted UB
-  c_ut = prod(x[3], x[4], ...)                    # weighted UT
-  r = sum(c_rb, c_ub, c_ut, ...)                  # sum (excluding NAs if na.rm = T)
-  r[m==1] = NA                                    # mask
+plot_aq_se = function(x, layer = "pred_se", countries = T, ...){
+  pollutant = attr(x, "pollutant")
+  stat = attr(x, "stat")
+  dtime = attr(x, "dtime")
+  area_type = attr(x, "area_type")
+  
+  cols = c("cadetblue1", "cyan3", "darkcyan", "slateblue2", "purple2", "purple4")
+  titl = paste(pollutant, stat, "Standard Error", dtime, area_type)
+  suppressMessages({
+    plot(x[layer], col=cols, nbreaks=7, 
+       main = titl, key.pos=1, reset=!countries, ...)
+  })
+  if (countries) plot(giscoR::gisco_countries$geometry |> 
+                        sf::st_transform(sf::st_crs(x)), add=T)
+}
+
+adjust_n_weight = function(x, poll){
+  # from Horalek et al. 2019, formula 2.7, 2.8, 2.10, 2.11
+  jb = x[1]; rb = x[2]; ub = x[3]
+  if (length(x) == 6){
+    ut = x[4]; wt = x[5]; wu = x[6]
+  } else {
+    ut = NULL; wt = x[4]; wu = x[5]
+  }
+  
+  m = any(is.na(jb),is.na(rb),is.na(ub))  # create mask only from predictions
+  if (m) {
+    r = NA
+  } else {
+    
+    # adjust layers using joint background layer
+    # urban concentration expected to be higher than rural (PM, NO2)
+    ind_rb_below_ub = rb <= ub
+    ind_rb_above_ub_below_jb = jb > rb & rb > ub
+    
+    ind_jb_replace_rb = !(ind_rb_below_ub | ind_rb_above_ub_below_jb)
+    ind_jb_replace_ub = !(ind_rb_below_ub | !ind_rb_above_ub_below_jb)
+    
+    # opposite criteria for O3: rural is expected to be higher than urban
+    if (poll == "O3"){
+      ind_jb_replace_rb = !ind_jb_replace_rb
+      ind_jb_replace_ub = !ind_jb_replace_ub
+    }
+    
+    # apply adjustment for RB and UB
+    if (ind_jb_replace_rb) rb = jb
+    if (ind_jb_replace_ub) ub = jb
+    
+    # handle urban traffic layer (PM, NO2)
+    if (!is.null(ut)){
+      ind_ub_replace_ut = ! ut > ub
+      if (ind_ub_replace_ut) ut = ub
+    } else {
+      ut = 0
+    }
+    
+    rb_w = (1 - wu) * rb                # weighted RB
+    ub_w = (1 - wt) * ub                # weighted UB
+    ut_w = wt * ut                      # weighted UT (if applicable; results to 0 if not)
+    u_w  = wu * (ub_w + ut_w)           # weighted urban    
+    r = sum(rb_w, u_w, na.rm = T)       # sum of rural and urban (excluding NAs if na.rm = T)
+  }
   return(r)
 }
 
-merge_aq_maps = function(paths, weights, cluster = NULL){
-  # aq_interpolated = paths |> sort() |> stars::read_stars() |> 
-  #   setNames(c("RB","UB","UT")[1:length(paths)])
-  aq_interpolated = paths |> sort() |> stars::read_stars(along="bands") |> 
-    stars::st_set_dimensions("bands", c("RB","UB","UT")[1:length(paths)])
+merge_aq_maps = function(paths, pse_paths = NULL, weights, cluster = NULL){
   
-  w = weights |> sf::st_crop(sf::st_bbox(aq_interpolated)) |> 
-    sf::st_normalize()
-  components = c(aq_interpolated, w, along="bands")
+  # grab info from path
+  info = strsplit(basename(paths[1]), "_")[[1]]
+  pollutant = info[1]; stat = info[2]; area_type = ""
+  dtime = paste("year =" , info[3], "month =", info[4])
   
-  if (all(grepl("O3", paths))){
-    # aq_merge = dplyr::transmute(
-    #   components, p = ((1 - w_urban)*RB) + (w_urban * UB))   # ozone: no urban traffic component
-    message("O3 is not yet supported.")
-    stop()
+  # read AQ maps from file
+  aq_interpolated = paths |> sort() |> 
+    stars::read_stars(along="band") |> 
+    setNames("value")
+  a_types = stars::st_get_dimension_values(aq_interpolated, 3)
+  
+  # crop weights to map extent
+  w = weights |> 
+    sf::st_crop(sf::st_bbox(aq_interpolated)) |> 
+    sf::st_normalize() |> 
+    setNames("value")
+  
+  # adjust spatial resolution in case of O3 (10x10 to 1x1 km, aka 'disaggregate')
+  if (dim(aq_interpolated)[1] != dim(w)[1]){
+    message("warp to 1km grid...")
+    tg = w[,,,1] 
+    tg_3d = tg
+    for (i in 2:length(a_types)) {
+      tg_3d = c(tg_3d, tg, along="band")
+    }
     
-  } else {
-    aq_merge = st_apply(components, 1:2, apply_aq_weights, na.rm=T, 
-                        CLUSTER = cluster, PROGRESS = T) 
+    aq_interpolated = stars::st_warp(
+      aq_interpolated, tg_3d, use_gdal = TRUE, no_data_value=-9999) |> 
+     stars::st_set_dimensions(3, a_types)
   }
+  
+  # combine maps and weights
+  components = c(aq_interpolated, w, along="band")
+  
+  message("merge AQ maps...")
+  # reduce band dimension through pixel-level weighted mean
+  aq_merge = stars::st_apply(components, 1:2, adjust_n_weight, 
+                             poll = pollutant, .fname = "aq_pred",
+                             CLUSTER = cluster, PROGRESS = T) 
+  
+  # same procedure for standard error maps
+  if (!is.null(pse_paths)){
+    message("merge PSE maps...")
+    aq_pse = pse_paths |> sort() |> stars::read_stars(along="bands") 
+    components_pse = c(aq_pse, w, along="bands")
+    aq_pse_merge = stars::st_apply(components_pse, 1:2, adjust_n_weight, 
+                                   poll = pollutant, .fname = "pred_se",
+                                   CLUSTER = cluster, PROGRESS = T) 
+    aq_merge = c(aq_merge, aq_pse_merge)
+  }
+  
+  attributes(aq_merge)[c("pollutant", "stat", "dtime", "area_type")] = 
+    c(pollutant, stat, dtime, area_type)
+  
   return(aq_merge)
 }

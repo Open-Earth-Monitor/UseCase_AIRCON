@@ -21,9 +21,9 @@ source("R/functions.R")
 Daily, monthly, or annual aggregates of AQ measurement data are imported according using `load_aq()`. Required inputs are the `pollutant`, the aggregation statistic ('mean' or 'perc') and a temporal selection. Specifying only the year (`y`) returns annual data. Additionally, specifying **either** the month (`m`) **or** the day of the year (`d`) returns monthly or daily data, respectively.
 
 ```{r read-aq, warning=FALSE}
-y = 2019
-m = 2
-pollutant = "PM10"
+y = 2015
+m = 4
+pollutant = "O3"
 stat = "perc"
 
 aq = load_aq(pollutant, stat, y, m) 
@@ -50,7 +50,7 @@ ymax = 5500000
 sp_ext = terra::ext(xmin, xmax, ymin, ymax)
 
 tic()
-aq_cov = load_covariates_EEA(aq, sp_ext, parallel = T)
+aq_cov = load_covariates_EEA(aq, sp_ext)
 toc()
 
 aq_cov
@@ -67,7 +67,7 @@ Next, we need to specify the desired combination of station area and type
 For each group, linear models are (a) trained and (b) predicted and finally added to (c) kriging residuals. A post-processing procedure is applied to merge the three outputs to a single map. In this example we only use rural background stations as input.
 
 ```{r linmod}
-station_area_type = "UT"
+station_area_type = "RB"
 aq = filter_area_type(aq, area_type = station_area_type)              
 
 linmod = linear_aq_model(aq, aq_cov)
@@ -86,10 +86,12 @@ aq_cov = mask_missing_CLC(aq_cov, linmod)
 
 # predict
 aq_cov$lm_pred = predict(linmod, newdata = aq_cov)
-
+aq_cov$se = predict(linmod, newdata = aq_cov, se.fit = T)$se.fit
+        
 # transform back
 if (attr(linmod, "log_transformed") == TRUE){
   aq_cov["lm_pred"] = exp(aq_cov["lm_pred"])
+  aq_cov["se"] = exp(aq_cov["se"])
 }
 ```
 
@@ -103,9 +105,26 @@ The residuals of the linear model can now be interpolated using covariates. `kri
 
 The number of nearest neighbors to consider can be specified with `n.max`. Kriging can be parallelized with `n.cores` > 1.
 
+```{r}
+library(doParallel)
+n.cores = 8
+cl = makeCluster(n.cores)# , outfile="~/cluster_output.dat")
+registerDoParallel(cl)
+clusterEvalQ(cl, {
+  #.libPaths('~/R/library/');
+  library(gstat);
+  library(stars)
+})
+
+```
+
 ```{r krige}
-k = krige_aq_residuals(aq, aq_cov, linmod, n.max = 10, 
-                       show.vario = F, n.cores = 8)
+tictoc::tic()
+k = krige_aq_residuals_2(aq, aq_cov, linmod, n.max = 10, cv = T,
+                       show.vario = F, cluster = cl, verbose = T)
+tictoc::toc()
+
+print(attr(k, "loo_cv"))
 ```
 
 ## Result
@@ -113,31 +132,18 @@ k = krige_aq_residuals(aq, aq_cov, linmod, n.max = 10,
 Model prediction and Kriging output are merged using `combine_results()`. To limit the linear model prediction to a certain value range, pass minimum and maximum to `trim_range`.
 
 ```{r plot, fig.height=7}
-result = combine_results(aq_cov, k, trim_range = c(0,100))
+result = combine_results(aq_cov, k)#, trim_range = c(0,100))
 
-plot_aq_interpolation(result)
+plot_aq_prediction(result)
 ```
 
 The example shows interpolated PM10 during April 2020, the time of the first COVID-19-related lockdowns in Europe. Pollution was relatively low compared to e.g April 2019.
 
-
-```{r, include=FALSE, echo=FALSE}
-out = paste0(c("aq_interpolated", pollutant, stat, y, m, station_area_type), collapse = "_")
-out = paste0(out, ".tif")
-stars::write_stars(result, layer = "aq_interpolated", file.path("tests", out))
-
-# |include: false
-# |echo: false
-
-
-# b = bench::mark(
-#   k1 = krige_aq_residuals(aq_at, aq_cov, linmod, n.max = 10, show.vario = T, n.cores = 8),
-#   k2 = krige_aq_residuals(aq_at, aq_cov, linmod, n.max = 25, show.vario = T, n.cores = 8),
-#   k3 = krige_aq_residuals(aq_at, aq_cov, linmod, n.max = 50, show.vario = T, n.cores = 8),
-#   k4 = krige_aq_residuals(aq_at, aq_cov, linmod, n.max = 100, show.vario = T, n.cores = 8),
-#   k5 = krige_aq_residuals(aq_at, aq_cov, linmod, n.max = 200, show.vario = T, n.cores = 8),
-#   k6 = krige_aq_residuals(aq_at, aq_cov, linmod, show.vario = T, n.cores = 8),
-#   check = F, iterations = 1, memory = T, time_unit = "m"
-# )
-# saveRDS(b, "benchmark_kriging.rds")
+```{r}
+plot_aq_se(result)
 ```
+
+```{r}
+stopCluster(cl)
+```
+
