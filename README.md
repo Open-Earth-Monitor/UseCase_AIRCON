@@ -19,9 +19,6 @@ universal Kriging method.
 - [x] write function to join pollutant tables by country
 - [x] download station data for all countries (2015-2023)
 - [x] preprocess all station data
-
-## Gapfill hourly PM2.5
-
 - [x] gapfill all PM2.5 with predictors according to EEA
   - PM10
   - coordinates
@@ -46,11 +43,14 @@ universal Kriging method.
 
 ### Station-level (static)
 
-- [x] gather station data
-- [x] add elevation
-- [x] add CLC
+- [x] Elevation: COP-DEM
+- [x] Corine Land Cover
   - [x] reclassify to 8 classes (Horalek 2019, section 3.4)
-- [x] add population density
+  - [x] aggregate to single-class 1 km fractional cover
+  - [x] aggregate to single-class 10 km fractional cover
+  - [x] aggregate to single-class 1 km fractional cover within 5 km
+    radius
+- [x] Population Density
 
 ### Measurement-level (hourly)
 
@@ -84,26 +84,29 @@ universal Kriging method.
 ## Interpolation
 
 - [x] function to read aq data
-- [x] function to read and warp covariates to a common grid
+- [x] function to read and warp required covariates to a common grid
 - [x] function wrapping lm
 - [x] function for residual kriging in parallel
-
-create 3 separate map layers based on…
-
-- rural background stations
-
-- urban/suburban background stations
-
-- urban/suburban traffic station
-
-- [ ] run interpolation test for one annual datasets (2015-2023)
+- [x] functions for (LOO-) cross-validation
+- [x] function to combine lm and kriging prediction
+- [x] functions for plotting prediction and standard error
 
 ## Map merging
 
-- [x] rasterize GRIP road data (area impacted by traffic)
+- [x] Weights: Traffic Exposure
   - [x] buffer and rasterize GRIP vector data for road classes 1-3
   - [x] distance to nearest road (by type)
-- [x] function to merge the 3 map layers
+- [x] Weights: Urban Character
+  - [x] scale and reclassify population density grid
+- [x] function to weight and merge map layers in parallel
+  - RB: rural background stations
+  - UB: urban/suburban background stations
+  - JB: joint rural/urbal background stations
+  - UT: urban/suburban traffic station (not for O3)
+  - adjust RB and UB where necessary using JB
+  - adjust UT where necessary using UB (not O3)
+- [x] write final maps (prediction and se) to COG
+  - `gdal_translate in out -of "COG" -co "COMPRESS=DEFLATE" -co "PREDICTOR=3" -co "BIGTIFF=YES"`
 
 ## Potential improvements to the current method
 
