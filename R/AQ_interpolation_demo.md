@@ -1,6 +1,6 @@
-# AQ Gapfilling
+# AQ Interpolation and Map Merging
 Johannes Heisig
-2024-02-09
+2025-01-08
 
 ``` r
 library(dplyr)
@@ -19,15 +19,15 @@ specifying **either** the month (`m`) **or** the day of the year (`d`)
 returns monthly or daily data, respectively.
 
 ``` r
-y = 2020
+y = 2015
 m = 4
-pollutant = "PM10"
+pollutant = "O3"
 stat = "perc"
 
 aq = load_aq(pollutant, stat, y, m) 
 ```
 
-    Loading monthly PM10 data. Year = 2020 ; Month = 4
+    Loading monthly O3 data. Year = 2015 ; Month = 4
 
 ## Add Covariates
 
@@ -59,38 +59,32 @@ ymax = 5500000
 sp_ext = terra::ext(xmin, xmax, ymin, ymax)
 
 tic()
-aq_cov = load_covariates_EEA(aq, sp_ext, parallel = T)
+aq_cov = load_covariates_EEA(aq, sp_ext)
 toc()
 ```
 
-    19.339 sec elapsed
+    1.969 sec elapsed
 
 ``` r
 aq_cov
 ```
 
-    stars object with 2 dimensions and 5 attributes
-    attribute(s), summary of first 1e+05 cells:
-     log_CAMS_PM10     WindSpeed          CLC           Elevation      
-     Min.   :1.19    Min.   :1.91    HDR    :     0   Min.   :  -5.22  
-     1st Qu.:2.32    1st Qu.:2.04    LDR    :     0   1st Qu.:   0.00  
-     Median :2.77    Median :2.23    IND    :     0   Median :   0.00  
-     Mean   :2.59    Mean   :2.37    TRAF   :     0   Mean   : 117.38  
-     3rd Qu.:2.92    3rd Qu.:2.72    UGR    :     0   3rd Qu.:  78.98  
-     Max.   :3.03    Max.   :3.51    (Other):     0   Max.   :2298.20  
-     NA's   :68166   NA's   :98318   NA's   :100000                    
-      RelHumidity   
-     Min.   :47.31  
-     1st Qu.:52.28  
-     Median :57.13  
-     Mean   :57.18  
-     3rd Qu.:61.53  
-     Max.   :72.49  
-     NA's   :98318  
+    stars object with 2 dimensions and 4 attributes
+    attribute(s):
+                             Min.      1st Qu.       Median         Mean
+    CAMS_O3          4.184386e+01 8.088657e+01 8.603809e+01 8.705899e+01
+    WindSpeed        7.162301e-01 2.109957e+00 2.634423e+00 2.700291e+00
+    Elevation       -3.746848e+00 3.191648e+01 1.761387e+02 3.796029e+02
+    SolarRadiation   1.012331e+06 6.962768e+06 8.053143e+06 7.737830e+06
+                         3rd Qu.         Max.   NA's
+    CAMS_O3         9.295163e+01 1.261244e+02 126113
+    WindSpeed       3.174413e+00 8.585591e+00 142222
+    Elevation       5.528501e+02 3.201791e+03 125538
+    SolarRadiation  9.107425e+06 1.413021e+07 142222
     dimension(s):
-      from   to  offset delta                       refsys x/y
-    x    1 4900 2500000  1000 ETRS89-extended / LAEA Eu... [x]
-    y    1 4100 5500000 -1000 ETRS89-extended / LAEA Eu... [y]
+      from  to  offset  delta                       refsys x/y
+    x    1 490 2500000  10000 ETRS89-extended / LAEA Eu... [x]
+    y    1 410 5500000 -10000 ETRS89-extended / LAEA Eu... [y]
 
 ## Linear Models per Station-Area/-Type Group
 
@@ -119,27 +113,23 @@ summary(linmod)
     lm(formula = frm, data = aq_join)
 
     Residuals:
-         Min       1Q   Median       3Q      Max 
-    -1.35544 -0.11738  0.00716  0.10891  0.72762 
+        Min      1Q  Median      3Q     Max 
+    -81.366  -7.154  -0.871   6.826  71.976 
 
     Coefficients:
-                    Estimate Std. Error t value Pr(>|t|)    
-    (Intercept)    5.430e-01  2.820e-01   1.926   0.0556 .  
-    log_CAMS_PM10  9.269e-01  5.490e-02  16.884   <2e-16 ***
-    WindSpeed      3.624e-02  2.204e-02   1.644   0.1018    
-    CLCUGR         3.996e-02  1.476e-01   0.271   0.7868    
-    CLCAGR         5.656e-03  7.951e-02   0.071   0.9434    
-    CLCNAT        -6.328e-02  8.348e-02  -0.758   0.4494    
-    CLCOTH         1.086e-01  1.255e-01   0.866   0.3876    
-    Elevation      8.648e-05  6.089e-05   1.420   0.1572    
-    RelHumidity   -5.121e-03  2.016e-03  -2.540   0.0119 *  
+                     Estimate Std. Error t value Pr(>|t|)    
+    (Intercept)     4.180e+01  7.961e+00   5.250 3.01e-07 ***
+    CAMS_O3         7.350e-01  8.705e-02   8.443 1.69e-15 ***
+    WindSpeed      -3.601e+00  1.074e+00  -3.353 0.000910 ***
+    Elevation      -2.545e-03  2.899e-03  -0.878 0.380679    
+    SolarRadiation  2.279e-06  6.535e-07   3.487 0.000566 ***
     ---
     Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
-    Residual standard error: 0.2174 on 191 degrees of freedom
-      (16 observations deleted due to missingness)
-    Multiple R-squared:  0.7739,    Adjusted R-squared:  0.7644 
-    F-statistic: 81.71 on 8 and 191 DF,  p-value: < 2.2e-16
+    Residual standard error: 12.73 on 280 degrees of freedom
+      (21 observations deleted due to missingness)
+    Multiple R-squared:  0.4005,    Adjusted R-squared:  0.3919 
+    F-statistic: 46.77 on 4 and 280 DF,  p-value: < 2.2e-16
 
 ## Predict Linear Model and Post-Process
 
@@ -156,18 +146,15 @@ which where log-transformed during model building.
 ``` r
 # check for missing land cover classes 
 aq_cov = mask_missing_CLC(aq_cov, linmod)
-```
 
-    AQ data has no observations with CLC class label(s) HDR, IND, TRAF.
-    Corresponding pixels are masked in the covariate data.
-
-``` r
 # predict
 aq_cov$lm_pred = predict(linmod, newdata = aq_cov)
-
+aq_cov$se = predict(linmod, newdata = aq_cov, se.fit = T)$se.fit
+        
 # transform back
 if (attr(linmod, "log_transformed") == TRUE){
   aq_cov["lm_pred"] = exp(aq_cov["lm_pred"])
+  aq_cov["se"] = exp(aq_cov["se"])
 }
 ```
 
@@ -184,8 +171,62 @@ The number of nearest neighbors to consider can be specified with
 `n.max`. Kriging can be parallelized with `n.cores` \> 1.
 
 ``` r
-k = krige_aq_residuals(aq, aq_cov, linmod, n.max = 10, 
-                       show.vario = F, n.cores = 8)
+library(doParallel)
+```
+
+    Loading required package: foreach
+
+    Loading required package: iterators
+
+    Loading required package: parallel
+
+``` r
+n.cores = 8
+cl = makeCluster(n.cores)# , outfile="~/cluster_output.dat")
+registerDoParallel(cl)
+clusterEvalQ(cl, {
+  #.libPaths('~/R/library/');
+  library(gstat);
+  library(stars)
+})
+```
+
+    [[1]]
+     [1] "stars"     "sf"        "abind"     "gstat"     "stats"     "graphics" 
+     [7] "grDevices" "utils"     "datasets"  "methods"   "base"     
+
+    [[2]]
+     [1] "stars"     "sf"        "abind"     "gstat"     "stats"     "graphics" 
+     [7] "grDevices" "utils"     "datasets"  "methods"   "base"     
+
+    [[3]]
+     [1] "stars"     "sf"        "abind"     "gstat"     "stats"     "graphics" 
+     [7] "grDevices" "utils"     "datasets"  "methods"   "base"     
+
+    [[4]]
+     [1] "stars"     "sf"        "abind"     "gstat"     "stats"     "graphics" 
+     [7] "grDevices" "utils"     "datasets"  "methods"   "base"     
+
+    [[5]]
+     [1] "stars"     "sf"        "abind"     "gstat"     "stats"     "graphics" 
+     [7] "grDevices" "utils"     "datasets"  "methods"   "base"     
+
+    [[6]]
+     [1] "stars"     "sf"        "abind"     "gstat"     "stats"     "graphics" 
+     [7] "grDevices" "utils"     "datasets"  "methods"   "base"     
+
+    [[7]]
+     [1] "stars"     "sf"        "abind"     "gstat"     "stats"     "graphics" 
+     [7] "grDevices" "utils"     "datasets"  "methods"   "base"     
+
+    [[8]]
+     [1] "stars"     "sf"        "abind"     "gstat"     "stats"     "graphics" 
+     [7] "grDevices" "utils"     "datasets"  "methods"   "base"     
+
+``` r
+tictoc::tic()
+k = krige_aq_residuals_2(aq, aq_cov, linmod, n.max = 10, cv = T,
+                       show.vario = F, cluster = cl, verbose = T)
 ```
 
     The legacy packages maptools, rgdal, and rgeos, underpinning the sp package,
@@ -197,30 +238,51 @@ k = krige_aq_residuals(aq, aq_cov, linmod, n.max = 10,
 
     Kriging residuals in parallel using 8 cores.
 
-    1/3: Peparing cluster.
+    Splitting new data.
 
-    2/3: Splitting new data.
+    LOO cross validation.
 
-    3/3: Kriging interpolation.
+    Kriging interpolation.
 
-    Completed.  177.565 sec elapsed
+    Completed.  26.819 sec elapsed
+
+``` r
+tictoc::toc()
+```
+
+    27.21 sec elapsed
+
+``` r
+print(attr(k, "loo_cv"))
+```
+
+      cv_type         n poll_mean        r2      rmse    r_rmse       mpe 
+        "loo"     "285" "112.503"   "0.475"  "11.835"   "10.52"  "-0.053" 
 
 ## Result
 
 Model prediction and Kriging output are merged using
-`combine_results()`. To limit the linear model prediction to certain
+`combine_results()`. To limit the linear model prediction to a certain
 value range, pass minimum and maximum to `trim_range`.
 
 ``` r
-result = combine_results(aq_cov, k, trim_range = c(0,100))
+result = combine_results(aq_cov, k)#, trim_range = c(0,100))
 
-plot_aq_interpolation(result)
+plot_aq_prediction(result)
 ```
-
-    downsample set to 5
 
 ![](AQ_interpolation_demo_files/figure-commonmark/plot-1.png)
 
 The example shows interpolated PM10 during April 2020, the time of the
 first COVID-19-related lockdowns in Europe. Pollution was relatively low
 compared to e.g April 2019.
+
+``` r
+plot_aq_se(result)
+```
+
+![](AQ_interpolation_demo_files/figure-commonmark/unnamed-chunk-3-1.png)
+
+``` r
+stopCluster(cl)
+```

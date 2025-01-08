@@ -68,9 +68,9 @@ The goal is to create annual, monthly, daily, and potentially hourly maps of fou
         -   [x] mean
         -   [x] percentiles
 -   Sentinel-5P TROPOMI (daily)
-    -   [ ] annual
-    -   [ ] monthly
-    -   [ ] daily
+    -   [x] annual
+    -   [x] monthly
+    -   [x] daily
 
 ## Interpolation
 

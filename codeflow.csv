@@ -1,8 +1,9 @@
 Step, 	File, 	Description
 1, 	`ACS_CAMS_access.R` `CCS_ERA5_access.R` `download_nc_job.R` `rename_nc.R`, 	"Request hourly ERA5 weather and CAMS pollution data. Copy to URLs from the web interface and store in .txt file to iterate over for downloading. Rename files according to metadata."
 2, 	[`EEA_stations.qmd`](R/EEA_stations.md), "Create a spatial dataset with all AQ stations and supplement them with static covariates (elevation, population, land cover)."
-3, 	[`EEA_AQ_data_access.qmd`](R/EEA_AQ_data_access.md) `EEA_AQ_data_access_all_countries.R`, "Download & pre-process hourly AQ measurements. This includes reading, filtering, and joining up to 4 pollutant time series per station for 2015-2023."
+3, 	[`EEA_AQ_data_access.qmd`](R/EEA_AQ_data_access.md) `EEA_AQ_data_access_all_countries.R`, "Download & pre-process hourly AQ measurements. This includes reading, filtering, and joining up to 5 pollutant time series per station for 2015-2023."
 4, 	[`xarray_extract_station_SSR.ipynb`](R/xarray_extract_station_SSR.ipynb) [`EEA_PM25_gapfilling_all_countries.qmd`](R/EEA_PM25_gapfilling_all_countries.md), "Extract hourly Surface Solar Radiation before gapfilling PM2.5 (only where PM10 is measured) using linear regression."
 5,  [`xarray_dask_rel_humidity.ipynb`](R/xarray_dask_rel_humidity.ipynb) [`xarray_dask_ws_wd.ipynb`](R/xarray_dask_ws_wd.ipynb), "Process ERA5 wind vectors and temperature data to wind speed & direction and relative humidity."
 6, 	[`EEA_AQ_data_temporal_aggregation.qmd`](R/EEA_AQ_data_temporal_aggregation.md) [`xarray_temp_aggregate.ipynb`](R/xarray_temp_aggregate.ipynb) [`xarray_temp_aggregate_rolling.ipynb`](R/xarray_temp_aggregate_rolling.ipynb) , "Aggregate AQ measurements and CAMS/ERA5 hourly data to annual, monthly, daily means/quantiles."
-7,  [`AQ_interpolation_demo.qmd`](R/AQ_interpolation_demo.md), "Interpolate AQ data using environmental and socio-economic covariates."
+7, [`s5p_l3_access.ipynb`](R/s5p_l3_access.ipynb), "Access Sentinel-5P TROPOMI Level 3 NO2 data and aggregate to coarser temporal resolutions."
+8,  [`AQ_interpolation_demo.qmd`](R/AQ_interpolation_demo.md) `AQ_interpolation_loop_palma.R`, "Interpolate AQ data using environmental and socio-economic covariates. Weight and combine individual outputs for rural background, urban background, and urban traffic stations."

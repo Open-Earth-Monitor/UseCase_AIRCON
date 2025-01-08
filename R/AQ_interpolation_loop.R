@@ -9,9 +9,9 @@ library(tictoc)
 
 source("R/functions.R")
 
-pollutant = "PM10"
-#stat = "mean"
-stat = "perc"
+pollutant = "NO2"
+stat = "mean"
+#stat = "perc"
 years = c(2021)
 months = 4:6
 vrsn = "v20240731"
@@ -29,7 +29,7 @@ xmax = 7400000
 ymax = 5500000
 sp_ext = terra::ext(xmin, xmax, ymin, ymax)
 
-test_subset = F
+test_subset = T
 
 weights = read_stars(c(
   "supplementary/static/merge_weights/traffic_weights_1km.tif",
@@ -51,13 +51,13 @@ perc = switch(stat,
 
 msrs_path = file.path(outdir, paste0(pollutant, "_", stat, "_measures.csv"))
 model_msrs = matrix(nrow=0, ncol=17) |> as.data.frame()
-if (file.exists(msrs_path)) model_msrs = read.csv(msrs_path)
+if (file.exists(msrs_path)) model_msrs = read.csv(msrs_path)[,-1]
                   
 
-# y = 2015
-# m = 1
-# n_max = 5
-# t = "UB"
+ y = 2021
+ m = 4
+ n_max = 5
+ t = "UB"
 
 for (y in years){
   for (m in months){
@@ -162,28 +162,31 @@ for (y in years){
   
   if (!file.exists(cog_path_aq)){
     
-    aq_merge = merge_aq_maps(compo_paths, pse_paths = NULL, weights = weights, cluster = cl)
+    aq_merge = merge_aq_maps(compo_paths, pse_paths, weights = weights, cluster = cl)
     
     plot_aq_prediction(aq_merge)
     
-    if_path = sub("RB.tif","merged.tif", compo_paths[1])
+    tif_path = sub("RB.tif","merged.tif", compo_paths[1])
     write_stars(aq_merge, layer = "aq_pred", tif_path)
     
     pse_path = paste0(dirname(tif_path), "/PSE_", basename(tif_path)) 
     write_stars(aq_merge, layer = "pred_se", pse_path)
     
-    #gdalUtilities::gdal_translate(tif_path, cog_path_aq, of = "COG",
-    #                              co = c("COMPRESS=DEFLATE", "PREDICTOR=3", "BIGTIFF=YES"))
+    gdalUtilities::gdal_translate(tif_path, cog_path_aq, of = "COG",
+                                  co = c("COMPRESS=DEFLATE", "PREDICTOR=3", "BIGTIFF=YES"))
+    gdalUtilities::gdal_translate(pse_path, cog_path_pse, of = "COG",
+                                  co = c("COMPRESS=DEFLATE", "PREDICTOR=3", "BIGTIFF=YES"))
     
     # simple CV: measurement vs combined map (already backtransformed!!)
     simple_msrs = cv_measures("simple", 
                               stars::st_extract(aq_merge, aq) |> 
-                                sf::st_drop_geometry(), 
+                                sf::st_drop_geometry() |> 
+                                dplyr::pull("aq_pred"), 
                               dplyr::pull(aq, pollutant))
     
     model_msrs = rbind(model_msrs, 
                        c(poll=pollutant, stat=stat, year=y,month=m, type="all", 
-                         msrs, simple_msrs, vario_metrics = c(NA,NA,NA)))
+                         c("-","-"), simple_msrs, vario_metrics = c("-","-","-")))
     
     message(paste("AQ map (year =", y, ", month =", m,
                   ") completed.\n======================================"))

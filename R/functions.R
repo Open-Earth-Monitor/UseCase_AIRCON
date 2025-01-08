@@ -209,7 +209,11 @@ add_meta = function(pollutant){
   return(pollutant)
 }
 
-
+create_dir_if = function(x, recursive = T){
+  suppressMessages({
+    new = lapply(x, function(d, r = recursive) if (!dir.exists(d)) dir.create(d, recursive = r))
+  })
+}
 
 ## Gapfilling  =================================================================
 
@@ -851,7 +855,9 @@ load_covariates_EEA = function(x, spatial_ext = NULL){
     "NO2" = list(cams, ws, stars::st_as_stars(dtm) |> setNames("Elevation"),
                  warp_to_target(target = dtm, mask=T, stars=T, name = "Elevation_5km_radius",
                    x = terra::rast("supplementary/static/COP-DEM/COP_DEM_Europe_5km_radius_mean_1km_epsg3035.tif")),
-                 # TROPOMI ???
+                 read_n_warp(get_filename(tdir, "s5p_no2", y), lyr,
+                                  name = "TROPOMI_NO2", target = dtm, mask=T, stars=T),
+                 
                  warp_to_target(target = dtm, mask=T, stars=T, name = "PopulationDensity",
                                 x = terra::rast("supplementary/static/pop_density_1km_epsg3035.tif")),
                  warp_to_target(
@@ -885,7 +891,7 @@ load_covariates_EEA = function(x, spatial_ext = NULL){
   return(strs)
 }
 
-filter_area_type = function(x, area_type = "RB"){
+filter_area_type = function(x, area_type = "RB", mainland_europe = T){
   if (!area_type %in% c("RB", "UB", "UT", "JB")) stop("area_type should be one of c(RB, UB, UT, JB)!")
   if ("data.frame" %in% class(x)){
     x = switch(area_type,
@@ -897,6 +903,9 @@ filter_area_type = function(x, area_type = "RB"){
       na.omit() |> 
       dplyr::select(-c(Countrycode, Station.Type, Station.Area))
     
+      # if desired, restrict coordinates to mainland europe
+      if (mainland_europe) x = dplyr::filter(x, dplyr::between(Longitude,-25,45),
+                                             dplyr::between(Latitude, 30, 72))
   } else if ("stars" %in% class(x)){
     lookup = list("PM10" = list("RB" = c("log_CAMS_PM10", "Elevation", "WindSpeed", "RelHumidity", "CLC_NAT_1km"),
                                 "UB" = c("log_CAMS_PM10"), 
@@ -909,15 +918,14 @@ filter_area_type = function(x, area_type = "RB"){
                   "O3"= list("RB" = c("CAMS_O3", "Elevation", "SolarRadiation"),
                              "UB" = c("CAMS_O3", "WindSpeed", "SolarRadiation"), 
                              "JB" = c("CAMS_O3", "Elevation", "WindSpeed", "SolarRadiation")), 
-                  "NO2"= list("RB" = c("CAMS_NO2", "Elevation", "Elevation_5km_radius", "WindSpeed", #"TROPOMI"
-                                       "PopulationDensity", 
-                                       "CLC_NAT_5km_radius","CLC_LDR_5km_radius"),
-                              "UB" = c("CAMS_NO2", "WindSpeed", #"TROPOMI"
+                  "NO2"= list("RB" = c("CAMS_NO2", "Elevation", "Elevation_5km_radius", "WindSpeed", "TROPOMI_NO2",
+                                       "PopulationDensity", "CLC_NAT_5km_radius","CLC_LDR_5km_radius"),
+                              "UB" = c("CAMS_NO2", "WindSpeed","TROPOMI_NO2",
                                        "PopulationDensity", "CLC_NAT_1km","CLC_AGR_1km","CLC_TRAF_1km",
                                        "CLC_LDR_5km_radius","CLC_HDR_5km_radius"), 
-                              "UT" = c("CAMS_NO2", "Elevation", "Elevation_5km_radius", "WindSpeed", #"TROPOMI"
+                              "UT" = c("CAMS_NO2", "Elevation", "Elevation_5km_radius", "WindSpeed", "TROPOMI_NO2",
                                        "CLC_LDR_5km_radius","CLC_HDR_5km_radius"), 
-                              "JB" = c("CAMS_NO2", "Elevation", "Elevation_5km_radius", "WindSpeed", #"TROPOMI"
+                              "JB" = c("CAMS_NO2", "Elevation", "Elevation_5km_radius", "WindSpeed", "TROPOMI_NO2",
                                        "PopulationDensity", "CLC_NAT_1km","CLC_AGR_1km","CLC_TRAF_1km",
                                        "CLC_NAT_5km_radius","CLC_LDR_5km_radius","CLC_HDR_5km_radius")))
     aq_attrs = attributes(x)
@@ -1316,6 +1324,7 @@ merge_aq_maps = function(paths, pse_paths = NULL, weights, cluster = NULL){
     sf::st_normalize() |> 
     setNames("value")
   
+  # AQ PREDICTIONS -------------------------------------------------------------i
   # adjust spatial resolution in case of O3 (10x10 to 1x1 km, aka 'disaggregate')
   if (dim(aq_interpolated)[1] != dim(w)[1]){
     message("warp to 1km grid...")
@@ -1325,6 +1334,7 @@ merge_aq_maps = function(paths, pse_paths = NULL, weights, cluster = NULL){
       tg_3d = c(tg_3d, tg, along="band")
     }
     
+    # warp to target
     aq_interpolated = stars::st_warp(
       aq_interpolated, tg_3d, use_gdal = TRUE, no_data_value=-9999) |> 
      stars::st_set_dimensions(3, a_types)
@@ -1339,17 +1349,38 @@ merge_aq_maps = function(paths, pse_paths = NULL, weights, cluster = NULL){
                              poll = pollutant, .fname = "aq_pred",
                              CLUSTER = cluster, PROGRESS = T) 
   
+  # PREDICTION STANDARD ERROR --------------------------------------------------i
   # same procedure for standard error maps
   if (!is.null(pse_paths)){
     message("merge PSE maps...")
-    aq_pse = pse_paths |> sort() |> stars::read_stars(along="bands") 
-    components_pse = c(aq_pse, w, along="bands")
+    aq_pse = pse_paths |> sort() |> stars::read_stars(along="band") 
+    
+    # adjust spatial resolution in case of O3 (10x10 to 1x1 km, aka 'disaggregate')
+    if (dim(aq_pse)[1] != dim(w)[1]){
+      message("warp to 1km grid...")
+      if (!exists("tg_3d")){
+        print("make target")
+        tg = w[,,,1] 
+        tg_3d = tg
+        for (i in 2:length(a_types)) {
+          tg_3d = c(tg_3d, tg, along="band")
+        }
+      } 
+      # warp to target
+      aq_pse = stars::st_warp(
+        aq_pse, tg_3d, use_gdal = TRUE, no_data_value=-9999) |> 
+        stars::st_set_dimensions(3, a_types) |> 
+        setNames("value")
+    }
+    
+    components_pse = c(aq_pse, w, along="band")
     aq_pse_merge = stars::st_apply(components_pse, 1:2, adjust_n_weight, 
                                    poll = pollutant, .fname = "pred_se",
                                    CLUSTER = cluster, PROGRESS = T) 
     aq_merge = c(aq_merge, aq_pse_merge)
   }
   
+  # inherit attributes
   attributes(aq_merge)[c("pollutant", "stat", "dtime", "area_type")] = 
     c(pollutant, stat, dtime, area_type)
   
