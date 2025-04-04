@@ -1,0 +1,24 @@
+#!/bin/bash
+
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=32
+#SBATCH --partition=normal
+#SBATCH --time=4:00:00
+#SBATCH --account=uni
+#SBATCH --output=O3_perc_%j.out
+
+#SBATCH --job-name=O3_perc
+
+module load palma/2023b
+
+module load foss
+module load GCC
+module load OpenSSL
+module load OpenMPI
+module load netCDF
+module load GDAL/3.9.0
+module load R
+module load arrow-R
+
+# run R script file
+Rscript oemc_aq/AQ_interpolation_loop_annual_palma_variotest.R "O3" "perc"

@@ -775,6 +775,39 @@ load_aq = function(poll, stat, y, m=0, d=0, sf = T, verbose = T){
   return(x)
 }
 
+load_aq_palma = function(poll, stat, y, m=0, d=0, sf = T, verbose = T){
+  if (!any(m==0, d==0)) stop("Supply only either m (month, 1-12) or d (day of year; 1-365).")
+  if (!poll %in% c("PM10","PM2.5","O3","NO2", "SO2")) stop("Select one of PM10, PM2.5, O3, NO2, SO2.")
+  if (!stat %in% c("perc", "mean")) stop("Select one of mean or perc.")
+  dir = file.path("AQ_data", ifelse(m == 0 & d == 0, "03_annual", ifelse(d == 0, "02_monthly", "01_daily")))
+  
+  info = paste("Loading", substr(basename(dir), 4, nchar(basename(dir))), poll, "data. Year =", y)
+  
+  if (d > 0){
+    dir = dir(dir, pattern = glob2rx(paste0(poll, "*", stat, "*")), full.names = T)
+    info = paste(info, "; Day of Year =", d)
+    x = arrow::open_dataset(dir) |> dplyr::filter(year == y, doy == d) |> dplyr::collect()
+  } else if (m > 0){
+    dir = dir(dir, pattern = glob2rx(paste0(poll, "*", stat, "*")), full.names = T)
+    stopifnot(length(dir)==1)
+    info = paste(info, "; Month =", m)
+    x = arrow::open_dataset(dir) |> dplyr::filter(year == y, month == m)
+  } else {
+    dir = dir(dir, pattern = glob2rx(paste0(poll, "*", stat, "*")), full.names = T)
+    stopifnot(length(dir)==1)
+    x = arrow::open_dataset(dir) |> dplyr::filter(year == y)
+  }
+  x = dplyr::collect(x) |> add_meta()
+  if (sf) x = sf::st_as_sf(x, coords=c("Longitude", "Latitude"), crs = sf::st_crs(4326), remove = F) |> 
+    sf::st_transform(sf::st_crs(3035))
+  attr(x, "stat") = stat
+  attr(x, "y") = y
+  attr(x, "m") = m
+  attr(x, "d") = d
+  if (verbose) message(info)
+  return(x)
+}
+
 get_filename = function(tdir, varname, y, perc = NULL,
                         base.dir = "supplementary"){
   varname = sub("\\.", "p", varname)
@@ -795,10 +828,27 @@ warp_to_target = function(x, target, name, method="bilinear", mask = F, stars = 
   return(x)
 }
 
+# terra
 read_n_warp = function(x, lyr, target, ...){
   x = terra::rast(x, lyrs = lyr)
   terra::time(x) = NULL
   if (class(target)=="character") target = terra::rast(target)
+  warp_to_target(x, target, ...)
+}
+
+# stars
+warp_to_target = function(x, target, name, method="bilinear", mask = F, stars = F){
+  x =  st_warp(x, target, method = method, use_gdal = T)
+  if (mask) x[is.na(target)] = NA
+  target_dims = stars::st_dimensions(target)
+  stars::st_dimensions(x) = target_dims
+  x = setNames(x, name)
+  return(x)
+}
+
+read_n_warp = function(x, lyr, target, ...){
+  x = stars::read_stars(x)[,,,lyr, drop=T] |> sf::st_set_crs(sf::st_crs(4326))
+  if (class(target)=="character") target = stars::read_stars(target)
   warp_to_target(x, target, ...)
 }
 
@@ -881,7 +931,7 @@ load_covariates_EEA = function(x, spatial_ext = NULL){
   )
   
   terra::terraOptions(progress=3)
-  strs = do.call(c, l)
+  strs = do.call("c", l)
   attr(strs, "pollutant") <- poll
   attr(strs, "stat") <- stat
   attr(strs, "dtime") <- dtime
