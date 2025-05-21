@@ -18,14 +18,21 @@ def reducer1(data, context = None):
 aggregate4 = load6.aggregate_temporal(intervals = [["2020-01-01T00:00:00Z", "2021-01-01T00:00:00Z"]], reducer = reducer1)
 merge8 = aggregate4.process("merge_cubes", cube2 = aggregate4, cube1 = load1)
 
-udf = openeo.UDF.from_file(
-    "openeo-udf.py",
-    context=datacube2
-)
+#udf = openeo.UDF.from_file(
+#    "openeo-udf.py",
+#    context=context
+#)
+
+with open("openeo-udf.py", 'r') as file:
+    udfcontent = file.read()
+
+def process2(data, context = None):
+    udf = process("run_udf", data = data, context = context, runtime = "Python", udf = udfcontent)
+    return udf
 
 
-apply3 = merge8.apply_dimension(process = udf, dimension = "t", context=datacube2)
-save9 = apply3.save_result(format = "GTIFF")
+apply3 = merge8.apply_dimension(process = process2, dimension = "t", context=datacube2)
+#save9 = apply3.save_result(format = "GTIFF")
 
 # The process can be executed synchronously (see below), as batch job or as web service now
 #result = connection.execute(save9)
