@@ -1,3 +1,11 @@
+# /// script
+# dependencies = [
+#   "scikit-learn",
+##   "scikit-gstat",
+##   "pykrige",
+# ]
+# ///
+
 # Filter station geoParquet file
 import geopandas
 import logging
