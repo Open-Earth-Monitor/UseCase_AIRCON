@@ -1,0 +1,14 @@
+name: aircon
+channels:
+- conda-forge
+dependencies:
+- geopandas
+- openeo
+- pyarrow
+- pykrige
+- rasterio
+- rioxarray
+- scikit-gstat
+- scikit-learn
+- xarray
+
