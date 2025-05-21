@@ -1,0 +1,19 @@
+name: aq-demo-py
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - jupyterlab
+  - numpy
+  - pandas
+  - geopandas
+  - rasterio
+  - rioxarray
+  - xarray
+  - rasterstats
+  - scikit-learn
+  - pykrige
+  - contextily
+  - matplotlib
+  - tqdm
+  - pyproj
