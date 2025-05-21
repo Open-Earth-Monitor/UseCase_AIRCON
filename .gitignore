@@ -46,3 +46,4 @@ docs/
 po/*~
 # RStudio Connect folder
 rsconnect/
+/.idea
