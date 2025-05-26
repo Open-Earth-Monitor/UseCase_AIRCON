@@ -841,7 +841,7 @@ def krige_aq_residuals(
         valid_aq.geometry.y.values,
         valid_aq["residual"].values,
         variogram_model="spherical", 
-        nlags=8, # As used in a previous version by the user
+        nlags=8, # As used in R script, can be adjusted
     )
 
     if not ({'x', 'y'} <= set(covariates.coords)):
