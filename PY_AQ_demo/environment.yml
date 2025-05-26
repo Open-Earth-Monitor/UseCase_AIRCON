@@ -1,19 +1,21 @@
-name: aq-demo-py
+name: aircon
 channels:
-  - conda-forge
+- conda-forge
 dependencies:
-  - python=3.10
-  - jupyterlab
-  - numpy
-  - pandas
-  - geopandas
-  - rasterio
-  - rioxarray
-  - xarray
-  - rasterstats
-  - scikit-learn
-  - pykrige
-  - contextily
-  - matplotlib
-  - tqdm
-  - pyproj
+- geopandas
+- openeo
+- pyarrow
+- pykrige
+- rasterio
+- rioxarray
+- scikit-gstat
+- scikit-learn
+- xarray
+- jupyterlab # Added for running Jupyter notebooks
+- pandas
+- numpy
+- matplotlib
+- pyproj
+- tqdm
+- ipykernel
+- seaborn

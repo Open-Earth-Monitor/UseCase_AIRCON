@@ -11,4 +11,11 @@ dependencies:
 - scikit-gstat
 - scikit-learn
 - xarray
-
+- jupyterlab # Added for running Jupyter notebooks
+- pandas
+- numpy
+- matplotlib
+- pyproj
+- tqdm
+- ipykernel
+- seaborn
