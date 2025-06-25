@@ -11,8 +11,22 @@ connection.authenticate_oidc()
 
 datacube1 = connection.datacube_from_process("load_url", format = "PARQUET", url = "https://zenodo.org/records/14513586/files/airquality.no2.o3.so2.pm10.pm2p5_4.annual_pnt_20150101_20231231_eu_epsg.3035_v20240718.parquet?download=1")
 datacube2 = connection.load_url(format = "PARQUET", url = "https://zenodo.org/records/14513586/files/airquality.no2.o3.so2.pm10.pm2p5_4.annual_pnt_20150101_20231231_eu_epsg.3035_v20240718.parquet?download=1")
+
+
+
 load1 = connection.datacube_from_process("load_stac", url = "https://github.com/GeoScripting-WUR/VectorRaster/releases/download/exercise-data/cams_o3_2020-stac-item-gtiff.json")
-load6 = connection.load_collection(collection_id = "AGERA5", spatial_extent = {"west": 5.563765056326457, "east": 7.819215368253948, "south": 51.821315223506765, "north": 52.18968462236922}, temporal_extent = ["2020-01-01T00:00:00Z", "2020-12-31T00:00:00Z"], bands = ["solar-radiation-flux", "wind-speed"])
+
+# Define the bounding box for the area of interest in WGS84
+bbox = {"west": 5.563765056326457, "east": 7.819215368253948, "south": 51.821315223506765, "north": 52.18968462236922}
+
+# Load covariate data for a specific extent to avoid an 'ExtentTooLarge' error.
+# The vector data will be filtered to this extent inside the UDF.
+load6 = connection.load_collection(
+    collection_id="AGERA5",
+    spatial_extent=bbox,
+    temporal_extent=["2020-01-01T00:00:00Z", "2020-12-31T00:00:00Z"],
+    bands=["solar-radiation-flux", "wind-speed"]
+)
 
 def reducer1(data, context = None):
     first1 = process("first", data = data)
