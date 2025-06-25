@@ -1,23 +1,20 @@
 # /// script
 # dependencies = [
-#   "scikit-learn",
-#   "pykrige",
+#   "pandas==1.5.3",
+#   "xarray==0.16.2",
 #   "geopandas==0.13.2",
-#   "xarray==2022.3.0",
-#   "rioxarray",
+#   "scikit-learn==1.3.2",
+#   "numpy==1.22.4",
+#   "pykrige",
 #   "netcdf4",
 #   "joblib",
-#   "pandas==1.5.3",
-#   "numpy==1.23.5",
-#   "pyproj",
-#   "tqdm"
+#   "pyproj"
 # ]
 # ///
 
 import geopandas
 import logging
 import numpy as np
-import pandas as pd
 import xarray as xr
 from openeo.udf import XarrayDataCube
 from openeo_udf.api.feature_collection import FeatureCollection
@@ -128,35 +125,42 @@ def krige_aq_residuals(aq: geopandas.GeoDataFrame, covariates: xr.Dataset) -> xr
 # --- Main UDF Function ---
 
 def apply_datacube(cube: XarrayDataCube, context: dict) -> XarrayDataCube:
-    covariates_cube = cube.to_array()
-    
+    # The UDF receives a DataArray where different bands are stacked in one dimension.
+    # The helper functions, however, expect an xarray.Dataset where each band is a variable.
+    # Here, we convert the DataArray to a Dataset to ensure compatibility.
+    covariates_array = cube.get_array()
+    # The .openeo accessor seems to be unavailable in the backend environment.
+    # We assume the band dimension is named 'bands' by convention.
+    band_dim = "bands"
+    covariates_dataset = covariates_array.to_dataset(dim=band_dim)
+
     # The station data is passed in the context as a FeatureCollection
-    station_fc = context.get('vector_geometries')
+    # The backend passes the vector cube directly as the context object, not in a dict.
+    station_fc = context
     if not station_fc:
         raise ValueError("Vector geometries (station data) not found in context.")
-    
+
     # Convert FeatureCollection to GeoDataFrame
-    # This assumes the FC has properties and a geometry
     features = station_fc.to_dict()['features']
     aq_gdf = geopandas.GeoDataFrame.from_features(features)
+    
     # Assuming the pollutant is passed in context or can be inferred
-    # For this example, let's hardcode it or get from context
     pollutant = context.get('pollutant', 'O3') # Default to O3 if not specified
     aq_gdf.attrs['pollutant'] = pollutant
 
     # 1. Fit linear model and get residuals
     LOG.info("Fitting linear model...")
-    lm = linear_aq_model(aq_gdf, covariates_cube)
+    lm = linear_aq_model(aq_gdf, covariates_dataset)
     if lm is None:
         raise RuntimeError("Failed to fit linear model.")
 
     # 2. Predict linear model over the grid
     LOG.info("Predicting with linear model...")
-    lm_pred = predict_linear_model(lm, covariates_cube)
+    lm_pred = predict_linear_model(lm, covariates_dataset)
 
     # 3. Krige the residuals
     LOG.info("Kriging residuals...")
-    kriged_residuals = krige_aq_residuals(aq_gdf, covariates_cube) # aq_gdf now has 'residual' column
+    kriged_residuals = krige_aq_residuals(aq_gdf, covariates_dataset) # aq_gdf now has 'residual' column
     
     if 'pred' not in kriged_residuals:
         raise RuntimeError("Failed to krige residuals.")

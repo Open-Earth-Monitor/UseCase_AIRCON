@@ -26,7 +26,7 @@ merge8 = aggregate4.process("merge_cubes", cube2 = aggregate4, cube1 = load1)
 #    context=None,  # No context needed for this example
 # )
 
-with open("openeo-udf.py", 'r') as file:
+with open('openeo-udf.py', 'r') as file:
     udfcontent = file.read()
 
 def process2(data, context = None):
