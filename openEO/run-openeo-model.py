@@ -19,7 +19,7 @@ load1 = connection.datacube_from_process("load_stac", url = "https://github.com/
 
 # Define the bounding box for the area of interest in WGS84
 # Define a bounding box covering Europe to match the station data extent
-bbox = {"west": -10, "south": 35, "east": 30, "north": 70}
+bbox = {"west": 5.563765056326457, "east": 7.819215368253948, "south": 51.821315223506765, "north": 52.18968462236922}
 
 # Load covariate data for a specific extent to avoid an 'ExtentTooLarge' error.
 # The vector data will be filtered to this extent inside the UDF.
@@ -58,7 +58,12 @@ save9 = apply3.save_result(format = "GTiff")
 
 print("Submitting batch job...")
 job = save9.execute_batch(
+    outputfile="openeo.tif",
     title="AIRCON UDF Model Run",
-    description="Running linear model and kriging UDF."
+    description="Running linear model and kriging UDF.",
+    job_options={
+        'executor-memory': '12g',
+        'executor-memoryOverhead': '4g'
+    }
 )
 

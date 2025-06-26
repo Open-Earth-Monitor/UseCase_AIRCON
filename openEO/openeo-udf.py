@@ -64,7 +64,7 @@ def linear_aq_model(aq: geopandas.GeoDataFrame, covariates: xr.Dataset) -> Optio
                  raise ValueError(f"Covariate '{cov_name}' not 2D (y,x), dims: {da.dims}")
 
             sampled_points = da.sel(x=station_x, y=station_y, method="nearest")
-            cov_vals_list.append(sampled_points.to_numpy())
+            cov_vals_list.append(sampled_points.values)
             valid_feature_names.append(cov_name)
         except Exception as e:
             LOG.warning(f"Failed to sample covariate '{cov_name}': {e}. Appending NaNs.")
@@ -325,13 +325,12 @@ def apply_datacube(cube: XarrayDataCube, context: dict) -> XarrayDataCube:
 
     if aq_gdf.empty:
         LOG.warning("No station data in this tile after clipping. Returning an empty result for this chunk.")
-        # Create an empty/NaN DataArray with the same spatial dimensions as the input
-        template_var = list(covariates_ds.data_vars.keys())[0]
+        # Create an empty/NaN DataArray with the same spatial dimensions and a 'bands' dimension
+        empty_data = np.full((1, len(covariates_ds.y), len(covariates_ds.x)), np.nan)
         empty_prediction = xr.DataArray(
-            np.nan,
-            coords={'y': covariates_ds.y, 'x': covariates_ds.x},
-            dims=['y', 'x'],
-            name="aq_prediction_final"
+            empty_data,
+            coords={'bands': ['aq_prediction_final'], 'y': covariates_ds.y, 'x': covariates_ds.x},
+            dims=['bands', 'y', 'x']
         )
         return XarrayDataCube(empty_prediction)
     # --- End Spatial Alignment and Filtering ---
@@ -362,5 +361,10 @@ def apply_datacube(cube: XarrayDataCube, context: dict) -> XarrayDataCube:
     LOG.info("Combining linear model prediction and kriged residuals...")
     final_prediction = lm_pred + kriged_residuals['pred']
     final_prediction.name = "aq_prediction_final"
+
+    # Ensure output has a bands dimension as expected by the backend
+    if 'bands' not in final_prediction.dims:
+        final_prediction = final_prediction.expand_dims('bands')
+        final_prediction = final_prediction.assign_coords(bands=[final_prediction.name])
 
     return XarrayDataCube(final_prediction)
