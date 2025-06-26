@@ -322,6 +322,11 @@ def apply_datacube(cube: XarrayDataCube, context: dict) -> XarrayDataCube:
         raise ValueError("No station data remains after clipping to the raster extent. Check data alignment and CRS.")
     # --- End Spatial Alignment and Filtering ---
 
+    LOG.info(f"Diagnostics before model fitting:")
+    LOG.info(f"Raster X coords (first 5): {covariates_ds.x.values[:5]}")
+    LOG.info(f"Raster Y coords (first 5): {covariates_ds.y.values[:5]}")
+    LOG.info(f"Clipped station data head (first 5 rows):\n{aq_gdf.head().to_string()}")
+
     # 1. Fit linear model and get residuals
     LOG.info("Fitting linear model...")
     lm = linear_aq_model(aq_gdf, covariates_ds)
