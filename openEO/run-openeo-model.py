@@ -8,16 +8,18 @@ from openeo.processes import process
 
 connection = openeo.connect("https://openeo.cloud")
 connection.authenticate_oidc()
+print("Authenticated successfully.")
 
-datacube1 = connection.datacube_from_process("load_url", format = "PARQUET", url = "https://zenodo.org/records/14513586/files/airquality.no2.o3.so2.pm10.pm2p5_4.annual_pnt_20150101_20231231_eu_epsg.3035_v20240718.parquet?download=1")
-datacube2 = connection.load_url(format = "PARQUET", url = "https://zenodo.org/records/14513586/files/airquality.no2.o3.so2.pm10.pm2p5_4.annual_pnt_20150101_20231231_eu_epsg.3035_v20240718.parquet?download=1")
-
-
+# Load station data from the public GeoJSON URL
+station_geojson_url = "https://git.wur.nl/openeo_monitor/comcrop/-/raw/main/airquality_udf/stations.geojson"
+print(f"Loading station data from: {station_geojson_url}")
+datacube2 = connection.load_url(format="GeoJSON", url=station_geojson_url)
 
 load1 = connection.datacube_from_process("load_stac", url = "https://github.com/GeoScripting-WUR/VectorRaster/releases/download/exercise-data/cams_o3_2020-stac-item-gtiff.json")
 
 # Define the bounding box for the area of interest in WGS84
-bbox = {"west": 5.563765056326457, "east": 7.819215368253948, "south": 51.821315223506765, "north": 52.18968462236922}
+# Define a bounding box covering Europe to match the station data extent
+bbox = {"west": -10, "south": 35, "east": 30, "north": 70}
 
 # Load covariate data for a specific extent to avoid an 'ExtentTooLarge' error.
 # The vector data will be filtered to this extent inside the UDF.
@@ -49,9 +51,14 @@ def process2(data, context = None):
 
 
 apply3 = merge8.apply_dimension(process = process2, dimension = "t", context=datacube2)
-#save9 = apply3.save_result(format = "GTIFF")
+save9 = apply3.save_result(format = "GTiff")
 
 # The process can be executed synchronously (see below), as batch job or as web service now
 #result = connection.execute(save9)
 
-apply3.execute_batch("openeo.tif", out_format="GTiff")
+print("Submitting batch job...")
+job = save9.execute_batch(
+    title="AIRCON UDF Model Run",
+    description="Running linear model and kriging UDF."
+)
+

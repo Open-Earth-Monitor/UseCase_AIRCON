@@ -24,6 +24,7 @@ from sklearn.linear_model import LinearRegression
 from pykrige.ok import OrdinaryKriging
 from typing import Optional
 from shapely.geometry import box
+from pyproj import CRS
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -41,64 +42,79 @@ def linear_aq_model(aq: geopandas.GeoDataFrame, covariates: xr.Dataset) -> Optio
         return None
 
     LOG.info(f"Preparing data for linear model for pollutant: {pollutant}")
-    LOG.info(f"Number of stations received: {len(aq)}")
-    LOG.info(f"Station data head:\n{aq.head().to_string()}")
-    LOG.info(f"Covariate metadata: {covariates}")
 
-    valid_feature_names = list(covariates.data_vars)
+    # --- Robust Covariate Sampling and NaN Handling ---
+    LOG.info("Starting robust covariate sampling.")
+    
     cov_vals_list = []
+    valid_feature_names = []
 
-    # Point-wise sampling of covariates
-    for idx, station in aq.iterrows():
-        try:
-            selection = covariates.sel(
-                x=station.geometry.x,
-                y=station.geometry.y,
-                method="nearest"
-            )
-            cov_vals = {var: selection[var].item() for var in valid_feature_names}
-            if idx < 5:  # Log first 5 samples
-                LOG.info(f"Sampled covariates for station {idx} at ({station.geometry.x}, {station.geometry.y}): {cov_vals}")
-        except Exception as e:
-            LOG.warning(f"Could not sample covariates for station {idx}: {e}")
-            cov_vals = {var: np.nan for var in valid_feature_names}
+    if aq.geometry.empty or aq.geometry.is_empty.all():
+        raise ValueError("Input GeoDataFrame 'aq' has no valid geometries for sampling.")
         
-        cov_vals_list.append(cov_vals)
+    station_x = xr.DataArray(aq.geometry.x, dims="station_id")
+    station_y = xr.DataArray(aq.geometry.y, dims="station_id")
+
+    # 1. Sample each covariate, handling potential errors
+    for cov_name, da in covariates.data_vars.items():
+        try:
+            # Ensure da is 2D for sampling
+            if 'band' in da.dims: da = da.isel(band=0)
+            if not (da.ndim == 2 and 'x' in da.dims and 'y' in da.dims):
+                 raise ValueError(f"Covariate '{cov_name}' not 2D (y,x), dims: {da.dims}")
+
+            sampled_points = da.sel(x=station_x, y=station_y, method="nearest")
+            cov_vals_list.append(sampled_points.to_numpy())
+            valid_feature_names.append(cov_name)
+        except Exception as e:
+            LOG.warning(f"Failed to sample covariate '{cov_name}': {e}. Appending NaNs.")
+            cov_vals_list.append(np.full(station_x.size, np.nan))
+            valid_feature_names.append(f"{cov_name}_SKIPPED") # Mark as skipped
 
     if not cov_vals_list:
-        LOG.error("Covariate sampling resulted in an empty list.")
-        return None
+        raise ValueError("No covariate values could be extracted.")
 
-    # Convert to DataFrame for model fitting
-    df = pd.DataFrame(cov_vals_list, columns=valid_feature_names)
-    df[pollutant] = aq[pollutant].values
+    # 2. Two-stage NaN removal (mimicking R's na.omit more robustly)
+    X_candidate = np.column_stack(cov_vals_list)
+    y_candidate = aq[pollutant].values
 
-    LOG.info(f"DataFrame before NaN removal (head):\n{df.head().to_string()}")
-    LOG.info(f"NaN count per column:\n{df.isnull().sum().to_string()}")
-
-    # Drop rows with NaN in target or features
-    df_clean = df.dropna()
-    LOG.info(f"Number of stations for model fitting after NaN removal: {len(df_clean)}")
-
-    if df_clean.empty:
-        LOG.error("No valid data remains after NaN removal.")
-        return None
-
-    X = df_clean[valid_feature_names]
-    y = df_clean[pollutant]
-
-    model = LinearRegression()
-    model.fit(X, y)
-    LOG.info(f"Fitted linear model with coefficients: {model.coef_}")
-
-    # Add residuals to the original GeoDataFrame
-    predictions = model.predict(X)
-    residuals = y - predictions
+    # Stage 1: Filter out columns that are ALL NaN (from failed covariates)
+    all_nan_cols_mask = np.isnan(X_candidate).all(axis=0)
+    if all_nan_cols_mask.all():
+        raise ValueError("All covariate columns are entirely NaN after sampling.")
     
-    # Create a new column 'residual' in the original GeoDataFrame, filled with NaNs
+    X_filtered_cols = X_candidate[:, ~all_nan_cols_mask]
+    final_feature_names = [name for i, name in enumerate(valid_feature_names) if not all_nan_cols_mask[i]]
+    LOG.info(f"Using features for model: {final_feature_names}")
+
+    # Stage 2: Filter out rows with ANY NaN (in remaining features or target variable)
+    nan_mask_X_rows = np.isnan(X_filtered_cols).any(axis=1)
+    nan_mask_y_rows = np.isnan(y_candidate)
+    combined_nan_mask_rows = nan_mask_X_rows | nan_mask_y_rows
+    
+    X_final = X_filtered_cols[~combined_nan_mask_rows]
+    y_final = y_candidate[~combined_nan_mask_rows]
+
+    # Also filter the original GeoDataFrame to keep indices aligned for residual calculation
+    aq_filtered = aq[~combined_nan_mask_rows]
+
+    if X_final.shape[0] == 0:
+        raise ValueError("After NaN removal, no valid data remains.")
+
+    # 3. Fit the linear regression model
+    model = LinearRegression()
+    model.fit(X_final, y_final)
+    model.feature_names_in_ = final_feature_names # Store feature names
+
+    # 4. Calculate and store residuals in the filtered GeoDataFrame
+    # Initialize residual column with NaNs
     aq['residual'] = np.nan
-    # Place the calculated residuals at the correct indices (of the non-NaN rows)
-    aq.loc[df_clean.index, 'residual'] = residuals
+    predictions = model.predict(X_final)
+    residuals = y_final - predictions
+    # Assign back to original df using index of the filtered (non-NaN) rows
+    aq.loc[aq_filtered.index, 'residual'] = residuals 
+
+    LOG.info(f"Successfully fitted linear model. Residuals calculated for {len(aq_filtered)} stations.")
     
     return model
 
@@ -175,6 +191,45 @@ def krige_aq_residuals(aq: geopandas.GeoDataFrame, covariates: xr.Dataset) -> xr
     )
     return kriged_ds
 
+def _harmonize_covariate_grids(ds: xr.Dataset) -> xr.Dataset:
+    """
+    Ensures all DataArrays in an xarray.Dataset share the same spatial grid.
+
+    Selects the grid of the first variable as the 'master' and reindexes all other
+    variables to match it using nearest-neighbor sampling.
+
+    Args:
+        ds: The input Dataset with potentially misaligned grids.
+
+    Returns:
+        A new Dataset where all data variables are aligned to the same grid.
+    """
+    data_vars = list(ds.data_vars)
+    if not data_vars:
+        LOG.info("Dataset is empty, no harmonization needed.")
+        return ds
+
+    master_grid = ds[data_vars[0]]
+    LOG.info(f"Harmonizing all covariates to the grid of '{data_vars[0]}'.")
+
+    harmonized_vars = {}
+    for var_name in data_vars:
+        if var_name == data_vars[0]:
+            harmonized_vars[var_name] = ds[var_name]
+            continue
+        
+        LOG.info(f"Reindexing '{var_name}'...")
+        # Use reindex_like for robust, pure-xarray grid alignment
+        harmonized_vars[var_name] = ds[var_name].reindex_like(master_grid, method="nearest")
+
+    # Create a new dataset from the harmonized variables
+    harmonized_ds = xr.Dataset(harmonized_vars)
+    harmonized_ds.attrs.update(ds.attrs)
+    
+    LOG.info("Grid harmonization complete.")
+    return harmonized_ds
+
+
 # --- Main UDF Function ---
 
 def apply_datacube(cube: XarrayDataCube, context: dict) -> XarrayDataCube:
@@ -184,6 +239,10 @@ def apply_datacube(cube: XarrayDataCube, context: dict) -> XarrayDataCube:
     covariates_da = cube.get_array()
     covariates_ds = covariates_da.to_dataset(dim='bands')
     LOG.info(f"Converted datacube to dataset with variables: {list(covariates_ds.data_vars)}")
+
+    # --- Grid Harmonization ---
+    # Ensure all raster layers are on the same grid before any processing
+    covariates_ds = _harmonize_covariate_grids(covariates_ds)
 
     # The station data is passed in the context as a FeatureCollection
     # The backend passes the vector cube directly as the context object, not in a dict.
@@ -199,31 +258,69 @@ def apply_datacube(cube: XarrayDataCube, context: dict) -> XarrayDataCube:
     pollutant = 'O3'  # Hard-coded for now, as context is a DriverVectorCube
     aq_gdf.attrs['pollutant'] = pollutant
 
-    # --- Spatial Filtering within UDF ---
-    # Since backend filtering of vector data is unreliable, we filter the station
-    # data here to match the extent of the raster data cube.
+    # --- CRS and Spatial Alignment ---
+    LOG.info("Starting CRS and spatial alignment.")
+    LOG.info(f"Initial station data count: {len(aq_gdf)}")
+    LOG.info(f"Initial station CRS: {aq_gdf.crs}")
+    LOG.info(f"Covariate coords: {covariates_ds.coords}")
+    LOG.info(f"Covariate attrs: {covariates_ds.attrs}")
 
-    # Get the bounding box from the raster data cube's coordinates.
+    try:
+        # OpenEO typically adds CRS info in a 'spatial_ref' coordinate.
+        raster_crs_info = covariates_ds.coords.get('spatial_ref')
+        if raster_crs_info is not None:
+            raster_crs = raster_crs_info.attrs.get('crs_wkt')
+            if not raster_crs:
+                raise ValueError("Found 'spatial_ref' coordinate but it lacks 'crs_wkt' attribute.")
+            LOG.info(f"Raster CRS detected from 'spatial_ref' coordinate.")
+
+            vector_crs = aq_gdf.crs
+            if not vector_crs:
+                LOG.warning("Vector data has no CRS information. Assuming WGS84 (EPSG:4326).")
+                aq_gdf.set_crs("EPSG:4326", inplace=True)
+                vector_crs = aq_gdf.crs
+            LOG.info(f"Vector CRS from GeoDataFrame: {vector_crs}")
+            
+            if not CRS(vector_crs).equals(CRS(raster_crs)):
+                LOG.info(f"Reprojecting vector data from {vector_crs} to match raster CRS.")
+                aq_gdf = aq_gdf.to_crs(raster_crs)
+                LOG.info(f"Vector data reprojected. New CRS: {aq_gdf.crs}")
+            else:
+                LOG.info("Vector and Raster CRSs already match.")
+        else:
+            LOG.warning("Could not find 'spatial_ref' coordinate in raster data. Assuming WGS84 (EPSG:4326) as a fallback, as this is common for AGERA5.")
+            raster_crs = "EPSG:4326"
+            vector_crs = aq_gdf.crs
+            if not vector_crs:
+                LOG.warning("Vector data has no CRS information. Assuming WGS84 (EPSG:4326).")
+                aq_gdf.set_crs("EPSG:4326", inplace=True)
+                vector_crs = aq_gdf.crs
+
+            if not CRS(vector_crs).equals(CRS(raster_crs)):
+                LOG.info(f"Reprojecting vector data from {vector_crs} to match assumed raster CRS (EPSG:3035).")
+                aq_gdf = aq_gdf.to_crs(raster_crs)
+                LOG.info(f"Vector data reprojected. New CRS: {aq_gdf.crs}")
+            else:
+                LOG.info("Vector CRS is already the assumed raster CRS (EPSG:3035).")
+
+    except Exception as e:
+        LOG.error(f"An error occurred during CRS alignment: {e}. Proceeding without reprojection, but results may be incorrect.")
+
+    # --- Spatial Filtering within UDF ---
+    LOG.info(f"Preparing for spatial clipping. Vector CRS: {aq_gdf.crs}, Vector bounds: {aq_gdf.total_bounds}")
+    LOG.info(f"Raster CRS used for clipping: {raster_crs}")
     min_x, max_x = covariates_ds.x.min().item(), covariates_ds.x.max().item()
     min_y, max_y = covariates_ds.y.min().item(), covariates_ds.y.max().item()
-
-    # Create a bounding box geometry from the raster's extent.
     raster_bbox = box(min_x, min_y, max_x, max_y)
     LOG.info(f"Clipping station data to raster extent: {raster_bbox.bounds}")
 
-    # The GeoDataFrame created from GeoJSON should have its CRS set.
-    # We assume the raster data and vector data are in the same CRS,
-    # as is expected from the openEO backend.
-    
-    # Clip the GeoDataFrame using the raster's bounding box.
     original_count = len(aq_gdf)
     aq_gdf = geopandas.clip(aq_gdf, raster_bbox)
     LOG.info(f"Clipped stations: {original_count} -> {len(aq_gdf)}")
 
     if aq_gdf.empty:
         raise ValueError("No station data remains after clipping to the raster extent. Check data alignment and CRS.")
-    # --- End Spatial Filtering ---
-
+    # --- End Spatial Alignment and Filtering ---
 
     # 1. Fit linear model and get residuals
     LOG.info("Fitting linear model...")
