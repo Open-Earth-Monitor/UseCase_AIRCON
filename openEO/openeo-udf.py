@@ -244,6 +244,11 @@ def apply_datacube(cube: XarrayDataCube, context: dict) -> XarrayDataCube:
     # Ensure all raster layers are on the same grid before any processing
     covariates_ds = _harmonize_covariate_grids(covariates_ds)
 
+    # Squeeze the time dimension, as the model expects a 2D spatial grid.
+    if 't' in covariates_ds.dims:
+        LOG.info("Squeezing temporal dimension from covariate dataset.")
+        covariates_ds = covariates_ds.squeeze(dim='t', drop=True)
+
     # The station data is passed in the context as a FeatureCollection
     # The backend passes the vector cube directly as the context object, not in a dict.
     station_fc = context
@@ -319,7 +324,16 @@ def apply_datacube(cube: XarrayDataCube, context: dict) -> XarrayDataCube:
     LOG.info(f"Clipped stations: {original_count} -> {len(aq_gdf)}")
 
     if aq_gdf.empty:
-        raise ValueError("No station data remains after clipping to the raster extent. Check data alignment and CRS.")
+        LOG.warning("No station data in this tile after clipping. Returning an empty result for this chunk.")
+        # Create an empty/NaN DataArray with the same spatial dimensions as the input
+        template_var = list(covariates_ds.data_vars.keys())[0]
+        empty_prediction = xr.DataArray(
+            np.nan,
+            coords={'y': covariates_ds.y, 'x': covariates_ds.x},
+            dims=['y', 'x'],
+            name="aq_prediction_final"
+        )
+        return XarrayDataCube(empty_prediction)
     # --- End Spatial Alignment and Filtering ---
 
     LOG.info(f"Diagnostics before model fitting:")
