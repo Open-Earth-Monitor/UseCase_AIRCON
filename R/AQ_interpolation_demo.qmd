@@ -22,8 +22,8 @@ Daily, monthly, or annual aggregates of AQ measurement data are imported accordi
 
 ```{r read-aq, warning=FALSE}
 y = 2015
-m = 4
-pollutant = "O3"
+m = 1
+pollutant = "PM10"
 stat = "perc"
 
 aq = load_aq(pollutant, stat, y, m) 

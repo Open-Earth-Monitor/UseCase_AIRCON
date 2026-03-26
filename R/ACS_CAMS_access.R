@@ -1,6 +1,6 @@
 library(ecmwfr)
 #source("R/functions.R")
-source("R/ecmwf_login.R")
+source("/home/j/jheisig/R/UseCase_AIRCON/R/ecmwf_login.R")
 
 options(keyring_backend="file")
 wf_set_key(user = uid_cams, key = key_cams, service = "ads")

@@ -28,8 +28,19 @@ station_data_urls = function(country, pollutant,
   as.list(data$ParquetFileUrl)
 }
 
-#' urls can be either a txt file with URLs a list returned by station_data_urls()
-#' 
+.err = function(e) {
+  fails <<- c(fails, urls[i])
+}
+
+.curl_download = function(i){
+  dest = filenames[i]
+  if (!file.exists(dest)){  # && !dest %in% enc_list
+    tryCatch(
+      curl::curl_download(urls[i], dest),
+      error = .err)
+  }}
+
+# urls can be either a txt file with URLs a list returned by station_data_urls()
 download_station_data = function(urls = "station_data_urls.txt", dir = NULL, cores = 1){
   
   if (class(urls) == "character") urls = readLines(urls)
@@ -45,24 +56,13 @@ download_station_data = function(urls = "station_data_urls.txt", dir = NULL, cor
   fails = character(0)
   if (cores == 1){
     t = system.time({
-      paths = purrr::map(1:length(urls), function(i){
-        dest = filenames[i]
-        if (!file.exists(dest)){  # && !dest %in% enc_list
-          tryCatch(curl::curl_download(urls[i], dest),
-                   error = function(e) {fails <<- c(fails, urls[i])}
-          )
-        }}, 
+      paths = purrr::map(1:length(urls), .curl_download, 
         .progress = list(type = "iterator", name = "Downloading", clear = F)) |> unlist()
     })
+    
   } else if (cores > 1){
     t = system.time({
-      paths = pbmcapply::pbmclapply(1:length(urls), function(i){
-        dest = filenames[i]
-        if (!file.exists(dest)){  # && !dest %in% enc_list
-          tryCatch(curl::curl_download(urls[i], dest),
-                   error = function(e) {fails <<- c(fails, urls[i])}
-          )
-        }}, mc.cores = cores)
+      paths = pbmcapply::pbmclapply(1:length(urls), .curl_download, mc.cores = cores)
     })
   }
   
