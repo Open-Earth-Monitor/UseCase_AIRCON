@@ -17,7 +17,7 @@ For more details on features and progress, visit the [task list](tasks.md).
 
 ## Data and Results
 
-[**Hourly data from about 7,000 EEA measurement stations throughout the EU**](https://zenodo.org/records/17085064) serves as basis for interpolation. Supplementary variables such as population density, land cover, climatology are further inputs for the prediction method. The **final maps** can viewed and explored in the [**OEMC app**](https://app.earthmonitor.org/map/m11/datasets?sidebar-open=true&bbox=[-1903163.1041197143,4228333.5219,4129552.920019715,7985363.0743]&layers=[{%22id%22:%22l50%22,%22opacity%22:1,%22date%22:%2220150101_20151231%22}]) or downloaded directly via [**Zenodo**]().
+[**Hourly data from about 7,000 EEA measurement stations throughout the EU**](https://zenodo.org/records/17085064) serves as basis for interpolation. Supplementary variables such as population density, land cover, and climatology are further inputs for the prediction method. The **final maps** can be viewed and explored in the [**OEMC app**](https://app.earthmonitor.org/map/m11/datasets?sidebar-open=true&bbox=[-1903163.1041197143,4228333.5219,4129552.920019715,7985363.0743]&layers=[{%22id%22:%22l50%22,%22opacity%22:1,%22date%22:%2220150101_20151231%22}]) or downloaded directly via [**Zenodo**]().
 
 
 ## Codeflow

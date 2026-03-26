@@ -21,8 +21,8 @@ list](tasks.md).
 [**Hourly data from about 7,000 EEA measurement stations throughout the
 EU**](https://zenodo.org/records/17085064) serves as basis for
 interpolation. Supplementary variables such as population density, land
-cover, climatology are further inputs for the prediction method. The
-**final maps** can viewed and explored in the [**OEMC
+cover, and climatology are further inputs for the prediction method. The
+**final maps** can be viewed and explored in the [**OEMC
 app**](https://app.earthmonitor.org/map/m11/datasets?sidebar-open=true&bbox=%5B-1903163.1041197143,4228333.5219,4129552.920019715,7985363.0743%5D&layers=%5B%7B%22id%22:%22l50%22,%22opacity%22:1,%22date%22:%2220150101_20151231%22%7D%5D)
 or downloaded directly via [**Zenodo**]().
 
@@ -37,7 +37,7 @@ or downloaded directly via [**Zenodo**]().
 |    5 | [`xarray_dask_rel_humidity.ipynb`](R/xarray_dask_rel_humidity.ipynb) [`xarray_dask_ws_wd.ipynb`](R/xarray_dask_ws_wd.ipynb)                                                                                                   | Process ERA5 wind vectors and temperature data to wind speed & direction and relative humidity.                                                                                                                                                      |
 |    6 | [`EEA_AQ_data_temporal_aggregation.qmd`](R/EEA_AQ_data_temporal_aggregation.md) [`xarray_temp_aggregate.ipynb`](R/xarray_temp_aggregate.ipynb) [`xarray_temp_aggregate_rolling.ipynb`](R/xarray_temp_aggregate_rolling.ipynb) | Aggregate AQ measurements and CAMS/ERA5 hourly data to annual, monthly, daily means/quantiles.                                                                                                                                                       |
 |    7 | [`s5p_l3_access.ipynb`](R/s5p_l3_access.ipynb)                                                                                                                                                                                | Access Sentinel-5P TROPOMI Level 3 NO2 data and aggregate to coarser temporal resolutions.                                                                                                                                                           |
-|    8 | [`AQ_demo.qmd`](R/AQ_demo.md) `AQ_interpolation_loop_palma_[daily/monthly/annual].R`                                                                                                                                          | Interpolate AQ data using environmental and socio-economic covariates. Weight and combine individual outputs for rural background, urban background, and urban traffic stations. Return cloud-optimized GeoTiff with prediction and error variables. |
+|    8 | [`AQ_Demo.qmd`](R/AQ_Demo.md) `AQ_interpolation_loop_palma_[daily/monthly/annual].R`                                                                                                                                          | Interpolate AQ data using environmental and socio-economic covariates. Weight and combine individual outputs for rural background, urban background, and urban traffic stations. Return cloud-optimized GeoTiff with prediction and error variables. |
 |    9 | [`AQ_maps_as_Zarr.ipynb`](R/AQ_maps_as_Zarr.ipynb)                                                                                                                                                                            | Convert map outputs to Zarr stores.                                                                                                                                                                                                                  |
 
 ## References
