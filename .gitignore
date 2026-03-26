@@ -46,3 +46,5 @@ docs/
 po/*~
 # RStudio Connect folder
 rsconnect/
+# old demo
+R/AQ_interpolation_demo*
